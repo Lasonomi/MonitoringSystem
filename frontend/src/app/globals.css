@@ -1,0 +1,230 @@
+@import "tailwindcss";
+
+/* =========================================================
+   THEME
+========================================================= */
+
+:root {
+  --background: #f5f5f5;
+  --foreground: #171717;
+
+  --card: #ffffff;
+  --card-foreground: #171717;
+
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+
+  --primary: #171717;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f3f3f3;
+  --secondary-foreground: #171717;
+
+  --muted: #f3f3f3;
+  --muted-foreground: #5c5c5c;
+
+  --accent: #d51100;
+  --accent-foreground: #ffffff;
+
+  --destructive: #d51100;
+  --destructive-foreground: #ffffff;
+
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #d51100;
+
+  --radius: 0.75rem;
+}
+
+/* =========================================================
+   BASE
+========================================================= */
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  min-height: 100%;
+  background: #f5f5f5;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: #f5f5f5;
+  color: #171717;
+}
+
+/* =========================================================
+   DASHBOARD
+========================================================= */
+
+.dashboard-shell {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* =========================================================
+   SIDEBAR
+========================================================= */
+
+.dashboard-sidebar {
+  background: rgba(255, 255, 255, 0.92);
+  border-right: 1px solid rgba(92, 92, 92, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+/* =========================================================
+   HEADER
+========================================================= */
+
+.dashboard-header {
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid rgba(92, 92, 92, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+/* =========================================================
+   CARDS
+========================================================= */
+
+.dashboard-card {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #e5e5e5;
+  box-shadow: 0 4px 20px rgba(23, 23, 23, 0.06);
+}
+
+/* =========================================================
+   MAP - NEUMORPHISM
+========================================================= */
+
+.map-neumorphism {
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow:
+    12px 12px 30px rgba(92, 92, 92, 0.12),
+    -8px -8px 24px rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+}
+
+.map-neumorphism .leaflet-container {
+  height: 100%;
+  width: 100%;
+  border-radius: 24px;
+}
+
+/* =========================================================
+   ACCENT
+========================================================= */
+
+.dashboard-accent {
+  color: #d51100;
+}
+
+.dashboard-accent-bg {
+  background: #d51100;
+  color: #ffffff;
+}
+
+/* =========================================================
+   SCROLLBAR
+========================================================= */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #5c5c5c;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #171717;
+}
+
+/* =========================================================
+   CARD HOVER ANIMATIONS
+========================================================= */
+
+/* Lift + deep shadow on hover */
+.card-lift {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+
+.card-lift:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 40px rgba(23, 23, 23, 0.13);
+}
+
+/* Subtle glow top border accent on hover */
+.card-glow::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  top: -1px;
+  height: 2px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, transparent, rgba(213, 17, 0, 0.4), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card-glow:hover::before {
+  opacity: 1;
+}
+
+/* Upload spinner animation */
+@keyframes upload-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.upload-spinner {
+  animation: upload-spin 0.8s linear infinite;
+}
+
+/* Pulse dot (status indicator) */
+@keyframes pulse-dot {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Fade-in for modals/dialogs */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.25s ease forwards;
+}
