@@ -1,3 +1,5 @@
+import { title } from "process";
+
 export interface KpiData {
   title: string;
   value: string;
@@ -131,6 +133,12 @@ export const dashboardKpi = {
     description: "Kapasitas jaringan terpakai",
     target: "Batas aman: 85%",
   },
+  c3mr: {
+    title: "C3MR",
+    value: "94,56%",
+    percentage: 94.56,
+    description: "C3MR NYA",
+  }
 };
 
 // =========================================================
