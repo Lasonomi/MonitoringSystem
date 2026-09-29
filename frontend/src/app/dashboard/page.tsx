@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import {
   ChartNoAxesCombined,
   CircleAlert,
@@ -8,6 +8,8 @@ import {
   Gauge,
   ShoppingCart,
   Users,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
@@ -17,80 +19,92 @@ import { Revenuechart } from "@/components/dashboard/revenuechart";
 import { SellerSummary } from "@/components/dashboard/seller-summary";
 import { WilayahSummary } from "@/components/dashboard/wilayah-summary";
 import { HeatmapPreview } from "@/components/dashboard/heatmap-preview";
-import { dashboardKpi } from "@/lib/dummy-data";
+import { fetchStats, fetchMeta, type StatsResponse, type MetaResponse } from "@/lib/api";
 
 export default function DashboardPage() {
-  const [startDate, setStartDate] = useState("2026-09-01");
-  const [endDate, setEndDate] = useState("2026-09-23");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
-  /*
-   * ==========================================================
-   * DUMMY FILTER
-   * Nanti bagian ini diganti dengan API Laravel.
-   * ==========================================================
-   */
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [meta, setMeta] = useState<MetaResponse | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const filteredKpi = useMemo(() => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-
-    const difference = end.getTime() - start.getTime();
-
-    const days = Math.max(
-      Math.floor(difference / (1000 * 60 * 60 * 24)) + 1,
-      1,
-    );
-
-    const periodFactor = Math.min(days / 30, 1);
-
-    const totalPelanggan = 3420;
-    const basePenjualan = 1250;
-    const baseRevenue = 845200000;
-    const baseNunggak = 186;
-
-    const totalPenjualan = Math.round(
-      basePenjualan * periodFactor,
-    );
-
-    const totalRevenue = Math.round(
-      baseRevenue * periodFactor,
-    );
-
-    const pelangganNunggak = Math.round(
-      baseNunggak * (0.85 + periodFactor * 0.15),
-    );
-
-    const occupancy = Math.min(
-      100,
-      70 + periodFactor * 8.4,
-    );
-
-    const c3mr =
-      ((totalPelanggan - pelangganNunggak) /
-        totalPelanggan) *
-      100;
-
-    return {
-      totalPenjualan,
-      totalRevenue,
-      totalPelanggan,
-      pelangganNunggak,
-      occupancy,
-      c3mr,
-    };
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [s, m] = await Promise.all([
+        fetchStats({
+          start_date: startDate || undefined,
+          end_date: endDate || undefined,
+        }),
+        fetchMeta(),
+      ]);
+      setStats(s);
+      setMeta(m);
+    } catch (e) {
+      console.error("Dashboard fetch error:", e);
+    } finally {
+      setLoading(false);
+    }
   }, [startDate, endDate]);
 
-  const formatRupiah = (value: number) => {
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      maximumFractionDigits: 0,
-    }).format(value);
-  };
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // ─── KPI computation ───────────────────────────────────────────────────────
+  const kpi = useMemo(() => {
+    if (!stats) {
+      return {
+        totalPenjualan: 0,
+        totalPelanggan: 0,
+        pelangganNunggak: 0,
+        occupancy: 0,
+        c3mr: 0,
+        topCity: "-",
+      };
+    }
+
+    const total = stats.total_orders;
+    const byStatus = stats.by_status ?? {};
+
+    // Count "selesai/sukses"
+    const selesai = Object.entries(byStatus)
+      .filter(([k]) => {
+        const kl = k.toLowerCase();
+        return (
+          kl.includes("sukses") ||
+          kl.includes("selesai") ||
+          kl.includes("done") ||
+          kl.includes("complete") ||
+          kl.includes("success") ||
+          kl.includes("ok")
+        );
+      })
+      .reduce((s, [, v]) => s + v, 0);
+
+    // Unique customers (approximation = total orders dari data)
+    const totalPelanggan = total;
+
+    // Orders yang belum selesai → "nunggak" approximation
+    const pelangganNunggak = total - selesai;
+
+    // C3MR: customer completion rate
+    const c3mr = total > 0 ? (selesai / total) * 100 : 0;
+
+    // Occupancy placeholder (tidak ada data jaringan di Excel ini)
+    const occupancy = 0;
+
+    const topCity = stats.by_city?.[0]?.city_name ?? "-";
+
+    return { totalPenjualan: total, totalPelanggan, pelangganNunggak, occupancy, c3mr, topCity };
+  }, [stats]);
+
+  const hasData = meta?.has_data ?? false;
 
   const resetDate = () => {
-    setStartDate("2026-09-01");
-    setEndDate("2026-09-23");
+    setStartDate("");
+    setEndDate("");
   };
 
   return (
@@ -104,20 +118,33 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-bold tracking-tight text-[#171717]">
               Dashboard Overview
             </h1>
-
             <p className="mt-1 max-w-3xl text-sm leading-5 text-[#5c5c5c]">
-              Monitoring operasional penjualan, pendapatan,
-              pelanggan, dan jaringan Kabupaten Lumajang.
+              Monitoring operasional order dari data Excel yang diupload.
             </p>
           </div>
 
           <div className="shrink-0">
             <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-600" />
-              Sistem Normal & Online
+              {hasData ? "Data Tersedia" : "Menunggu Upload"}
             </span>
           </div>
         </div>
+
+        {/* No data banner */}
+        {!hasData && !loading && (
+          <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+            <AlertCircle className="h-5 w-5 shrink-0 text-amber-600" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Belum ada data order</p>
+              <p className="text-xs text-amber-700">
+                Pergi ke halaman <strong>Laporan &amp; Export</strong> dan upload file Excel
+                dengan kolom: ORDER ID, STO, DATEL, TYPE TRANSAKSI, STATUS, ORDER DATE,
+                CUST NAME, CUST ADDRESS, CITY NAME, PACKAGE.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* =====================================================
             FILTER TANGGAL
@@ -128,16 +155,12 @@ export default function DashboardPage() {
               <h2 className="text-sm font-semibold text-[#171717]">
                 Periode Dashboard
               </h2>
-
               <p className="mt-1 text-xs leading-5 text-[#5c5c5c]">
-                Filter berlaku untuk penjualan, revenue,
-                pelanggan nunggak, occupancy, dan C3MR.
-                Total pelanggan tidak berubah.
+                Filter berdasarkan tanggal order. Kosongkan untuk menampilkan semua data.
               </p>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto]">
-              {/* Start date */}
               <div className="min-w-0">
                 <label
                   htmlFor="start-date"
@@ -145,20 +168,16 @@ export default function DashboardPage() {
                 >
                   Tanggal Mulai
                 </label>
-
                 <input
                   id="start-date"
                   type="date"
                   value={startDate}
-                  max={endDate}
-                  onChange={(event) =>
-                    setStartDate(event.target.value)
-                  }
+                  max={endDate || undefined}
+                  onChange={(event) => setStartDate(event.target.value)}
                   className="h-10 w-full min-w-0 rounded-xl border border-[#e5e5e5] bg-white px-3 text-sm text-[#171717] outline-none transition focus:border-[#d51100] focus:ring-2 focus:ring-[#d51100]/10"
                 />
               </div>
 
-              {/* End date */}
               <div className="min-w-0">
                 <label
                   htmlFor="end-date"
@@ -166,20 +185,16 @@ export default function DashboardPage() {
                 >
                   Tanggal Sampai
                 </label>
-
                 <input
                   id="end-date"
                   type="date"
                   value={endDate}
-                  min={startDate}
-                  onChange={(event) =>
-                    setEndDate(event.target.value)
-                  }
+                  min={startDate || undefined}
+                  onChange={(event) => setEndDate(event.target.value)}
                   className="h-10 w-full min-w-0 rounded-xl border border-[#e5e5e5] bg-white px-3 text-sm text-[#171717] outline-none transition focus:border-[#d51100] focus:ring-2 focus:ring-[#d51100]/10"
                 />
               </div>
 
-              {/* Reset */}
               <div className="flex items-end">
                 <button
                   type="button"
@@ -195,117 +210,91 @@ export default function DashboardPage() {
 
         {/* =====================================================
             KPI CARDS
-            Desktop besar = 6 card satu baris
-            Desktop = 3 x 2
-            Mobile = horizontal scroll
         ====================================================== */}
         <section>
-          <div
-            className="
-              grid
-              grid-cols-1
-              gap-4
-              sm:grid-cols-2
-              lg:grid-cols-3
-              2xl:grid-cols-6
-            "
-          >
-            {/* Total Penjualan */}
-            <StatCard
-              title="Total Penjualan"
-              value={filteredKpi.totalPenjualan.toLocaleString(
-                "id-ID",
-              )}
-              description="Periode terpilih"
-              trend={dashboardKpi.totalPenjualan.trend}
-              trendType={
-                dashboardKpi.totalPenjualan.trendType
-              }
-              icon={ShoppingCart}
-            />
+          {loading ? (
+            <div className="flex h-24 items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-[#5c5c5c]" />
+              <span className="ml-2 text-sm text-[#5c5c5c]">Memuat KPI...</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+              {/* Total Order */}
+              <StatCard
+                title="Total Order"
+                value={kpi.totalPenjualan.toLocaleString("id-ID")}
+                description="dari data upload"
+                icon={ShoppingCart}
+              />
 
-            {/* Total Revenue */}
-            <StatCard
-              title="Total Revenue"
-              value={formatRupiah(
-                filteredKpi.totalRevenue,
-              )}
-              description="Periode terpilih"
-              trend={dashboardKpi.totalRevenue.trend}
-              trendType={
-                dashboardKpi.totalRevenue.trendType
-              }
-              icon={CircleDollarSign}
-            />
+              {/* Top Kota */}
+              <StatCard
+                title="Top Kota"
+                value={kpi.topCity}
+                description="kota terbanyak"
+                icon={CircleDollarSign}
+              />
 
-            {/* Total Pelanggan */}
-            <StatCard
-              title="Total Pelanggan"
-              value={filteredKpi.totalPelanggan.toLocaleString(
-                "id-ID",
-              )}
-              description="Total seluruh pelanggan"
-              icon={Users}
-            />
+              {/* Total Pelanggan */}
+              <StatCard
+                title="Total Order (Pelanggan)"
+                value={kpi.totalPelanggan.toLocaleString("id-ID")}
+                description="total dari data"
+                icon={Users}
+              />
 
-            {/* Pelanggan Nunggak */}
-            <StatCard
-              title="Pelanggan Nunggak"
-              value={filteredKpi.pelangganNunggak.toLocaleString(
-                "id-ID",
-              )}
-              description="Periode terpilih"
-              trend="-4,2%"
-              trendType="down"
-              icon={CircleAlert}
-            />
+              {/* Belum Selesai */}
+              <StatCard
+                title="Belum Selesai"
+                value={kpi.pelangganNunggak.toLocaleString("id-ID")}
+                description="order belum selesai"
+                icon={CircleAlert}
+              />
 
-            {/* Occupancy */}
-            <StatCard
-              title="Occupancy"
-              value={`${filteredKpi.occupancy.toFixed(1)}%`}
-              description="Periode terpilih"
-              progress={filteredKpi.occupancy}
-              icon={Gauge}
-            />
+              {/* Occupancy — masih static */}
+              <StatCard
+                title="Occupancy"
+                value="N/A"
+                description="tidak ada di data"
+                icon={Gauge}
+              />
 
-            {/* C3MR */}
-            <StatCard
-              title="C3MR"
-              value={`${filteredKpi.c3mr.toFixed(1)}%`}
-              description="Periode terpilih"
-              progress={filteredKpi.c3mr}
-              icon={ChartNoAxesCombined}
-            />
-          </div>
+              {/* C3MR */}
+              <StatCard
+                title="C3MR"
+                value={`${kpi.c3mr.toFixed(1)}%`}
+                description="completion rate"
+                progress={kpi.c3mr}
+                icon={ChartNoAxesCombined}
+              />
+            </div>
+          )}
         </section>
 
         {/* =====================================================
-            ANALYTICS
+            ANALYTICS — Grafik Penjualan & Distribusi Paket
         ====================================================== */}
         <section>
           <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2">
             <div className="min-w-0">
-              <Linechart />
+              <Linechart data={stats?.by_date || []} loading={loading} />
             </div>
-
             <div className="min-w-0">
-              <Revenuechart />
+              <Revenuechart data={stats?.by_package || []} loading={loading} />
             </div>
           </div>
         </section>
 
         {/* =====================================================
-            SELLER + WILAYAH
+            DISTRIBUSI STO & WILAYAH KOTA
         ====================================================== */}
         <section>
           <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2">
             <div className="min-w-0">
-              <SellerSummary />
+              <SellerSummary data={stats?.by_sto || []} totalOrders={stats?.total_orders || 0} />
             </div>
-
             <div className="min-w-0">
-              <WilayahSummary />
+              <WilayahSummary data={stats?.by_city || []} totalOrders={stats?.total_orders || 0} />
             </div>
           </div>
         </section>
