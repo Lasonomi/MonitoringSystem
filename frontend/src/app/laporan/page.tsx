@@ -20,6 +20,7 @@ import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   uploadOrders,
   fetchOrders,
@@ -41,9 +42,11 @@ export default function LaporanPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadFileName, setUploadFileName] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const [datelFilter, setDatelFilter] = useState("Lumajang");
   const [uploadResult, setUploadResult] = useState<{
     imported: number;
     skipped: number;
+    filtered: number;
     columns: string[];
     message: string;
   } | null>(null);
@@ -88,11 +91,12 @@ export default function LaporanPage() {
     setUploadError("");
 
     try {
-      const res = await uploadOrders(file);
+      const res = await uploadOrders(file, datelFilter);
       if (res.success) {
         setUploadResult({
           imported: res.imported ?? 0,
           skipped: res.skipped ?? 0,
+          filtered: res.filtered ?? 0,
           columns: res.columns ?? [],
           message: res.message,
         });
@@ -107,7 +111,7 @@ export default function LaporanPage() {
       setUploadStatus("error");
       setUploadError(e instanceof Error ? e.message : "Upload gagal. Periksa koneksi server.");
     }
-  }, [loadStats]);
+  }, [datelFilter, loadStats]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) processFile(e.target.files[0]);
@@ -175,6 +179,7 @@ export default function LaporanPage() {
         "CUST ADDRESS": o.cust_address ?? "",
         "CITY NAME": o.city_name ?? "",
         PACKAGE: o.package ?? "",
+        "SPEED PAKET": o.speed_package ?? "",
       }));
 
       exportToExcel(exportData, `Data_Orders_${new Date().toISOString().slice(0, 10)}`);
@@ -205,6 +210,9 @@ export default function LaporanPage() {
                   <span className="font-bold">{uploadResult.imported.toLocaleString("id-ID")}</span> data diimport
                   {uploadResult.skipped > 0 && (
                     <span className="ml-2 text-amber-600">· {uploadResult.skipped} baris dilewati</span>
+                  )}
+                  {uploadResult.filtered > 0 && (
+                    <span className="ml-2 text-amber-600">· {uploadResult.filtered} baris bukan {datelFilter}</span>
                   )}
                 </p>
 
@@ -289,17 +297,36 @@ export default function LaporanPage() {
 
     // IDLE — drop zone
     return (
-      <div
-        onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-        onDragLeave={() => setIsDragOver(false)}
-        onDrop={handleDrop}
-        className={`relative rounded-2xl border-2 border-dashed p-8 text-center transition-all duration-200 ${
-          isDragOver
-            ? "border-[#171717] bg-[#171717]/5 scale-[1.01]"
-            : "border-[#d5d5d5] bg-white hover:border-[#171717]/50 hover:bg-[#fafafa]"
-        }`}
-      >
-        <label className="cursor-pointer">
+      <div className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <label htmlFor="datel-filter" className="text-xs font-semibold text-[#171717]">
+            Wilayah DATEL untuk upload
+          </label>
+          <select
+            id="datel-filter"
+            value={datelFilter}
+            onChange={(e) => setDatelFilter(e.target.value)}
+            className="h-10 rounded-xl border border-[#e5e5e5] bg-white px-3 text-xs text-[#171717] outline-none focus:border-[#171717] sm:min-w-48"
+          >
+            <option value="Lumajang">Lumajang saja</option>
+            <option value="Situbondo">Situbondo saja</option>
+            <option value="">Semua wilayah</option>
+          </select>
+        </div>
+        <p className="text-[11px] text-[#5c5c5c]">
+          Baris dari wilayah lain tidak akan diimpor. Data yang sudah ada tetap tersimpan.
+        </p>
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+          onDragLeave={() => setIsDragOver(false)}
+          onDrop={handleDrop}
+          className={`relative rounded-2xl border-2 border-dashed p-8 text-center transition-all duration-200 ${
+            isDragOver
+              ? "border-[#171717] bg-[#171717]/5 scale-[1.01]"
+              : "border-[#d5d5d5] bg-white hover:border-[#171717]/50 hover:bg-[#fafafa]"
+          }`}
+        >
+          <label className="cursor-pointer">
           <div className="flex flex-col items-center gap-3">
             <div
               className={`flex h-14 w-14 items-center justify-center rounded-2xl transition-all duration-200 ${
@@ -328,7 +355,7 @@ export default function LaporanPage() {
                 Kolom yang diharapkan:
               </p>
               <div className="flex flex-wrap gap-1">
-                {["ORDER ID", "STO", "DATEL", "TYPE TRANSAKSI", "STATUS", "ORDER DATE", "CUST NAME", "CUST ADDRESS", "CITY NAME", "PACKAGE"].map((col) => (
+                {["ORDER ID", "STO", "DATEL", "TYPE TRANSAKSI / CHANNEL 1", "STATUS / STATUS RESUME", "ORDER DATE / TGL PS", "CUST NAME / NAMA", "CUST ADDRESS", "CITY NAME", "PACKAGE NAME", "SPEED PAKET"].map((col) => (
                   <span
                     key={col}
                     className="rounded-md border border-[#e5e5e5] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#171717]"
@@ -346,7 +373,8 @@ export default function LaporanPage() {
             className="hidden"
             onChange={handleFileChange}
           />
-        </label>
+          </label>
+        </div>
       </div>
     );
   };
@@ -354,7 +382,7 @@ export default function LaporanPage() {
   // ─── Stats summary cards ─────────────────────────────────────────────────────
   const totalOrders = stats?.total_orders ?? 0;
   const topCity = stats?.by_city?.[0];
-  const topPackage = stats?.by_package?.[0];
+  const topServiceType = stats?.by_service_type?.[0];
 
   return (
     <DashboardLayout>
@@ -408,9 +436,11 @@ export default function LaporanPage() {
             </div>
             <div>
               <p className="text-[11px] font-medium text-[#5c5c5c]">Total Order</p>
-              <p className="text-xl font-bold text-[#171717]">
-                {statsLoading ? "..." : totalOrders.toLocaleString("id-ID")}
-              </p>
+              {statsLoading ? (
+                <Skeleton className="mt-2 h-6 w-24" />
+              ) : (
+                <p className="text-xl font-bold text-[#171717]">{totalOrders.toLocaleString("id-ID")}</p>
+              )}
             </div>
           </div>
 
@@ -420,9 +450,13 @@ export default function LaporanPage() {
             </div>
             <div>
               <p className="text-[11px] font-medium text-[#5c5c5c]">Top Kota</p>
-              <p className="text-sm font-bold text-[#171717] truncate max-w-[150px]">
-                {statsLoading ? "..." : (topCity ? `${topCity.city_name} (${topCity.count})` : "-")}
-              </p>
+              {statsLoading ? (
+                <Skeleton className="mt-2 h-4 w-28" />
+              ) : (
+                <p className="max-w-[150px] truncate text-sm font-bold text-[#171717]">
+                  {topCity ? `${topCity.city_name} (${topCity.count})` : "-"}
+                </p>
+              )}
             </div>
           </div>
 
@@ -431,10 +465,14 @@ export default function LaporanPage() {
               <Package className="h-5 w-5 text-emerald-600" />
             </div>
             <div>
-              <p className="text-[11px] font-medium text-[#5c5c5c]">Top Paket</p>
-              <p className="text-sm font-bold text-[#171717] truncate max-w-[150px]">
-                {statsLoading ? "..." : (topPackage ? `${topPackage.package} (${topPackage.count})` : "-")}
-              </p>
+              <p className="text-[11px] font-medium text-[#5c5c5c]">Top Jenis Layanan</p>
+              {statsLoading ? (
+                <Skeleton className="mt-2 h-4 w-32" />
+              ) : (
+                <p className="max-w-[150px] truncate text-sm font-bold text-[#171717]">
+                  {topServiceType ? `${topServiceType.jenis_layanan} (${topServiceType.count})` : "-"}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -519,22 +557,22 @@ export default function LaporanPage() {
               </Card>
             )}
 
-            {/* By Package — top 10 */}
-            {stats.by_package.length > 0 && (
+            {/* By service type — top 10 */}
+            {stats.by_service_type.length > 0 && (
               <Card className="rounded-2xl border border-[#e5e5e5] bg-white shadow-sm">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-bold text-[#171717]">
-                    Top 10 Paket
+                    Top 10 Jenis Layanan
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {stats.by_package.slice(0, 10).map((p) => {
-                      const pct = totalOrders > 0 ? (p.count / totalOrders) * 100 : 0;
+                    {stats.by_service_type.slice(0, 10).map((serviceType) => {
+                      const pct = totalOrders > 0 ? (serviceType.count / totalOrders) * 100 : 0;
                       return (
-                        <div key={p.package} className="flex items-center gap-3">
+                        <div key={serviceType.jenis_layanan} className="flex items-center gap-3">
                           <p className="w-48 truncate text-xs font-medium text-[#171717]">
-                            {p.package || "(kosong)"}
+                            {serviceType.jenis_layanan || "(kosong)"}
                           </p>
                           <div className="flex-1 rounded-full bg-[#f0f0f0] h-2">
                             <div
@@ -543,7 +581,7 @@ export default function LaporanPage() {
                             />
                           </div>
                           <span className="w-10 text-right text-xs font-semibold text-[#5c5c5c]">
-                            {p.count.toLocaleString("id-ID")}
+                            {serviceType.count.toLocaleString("id-ID")}
                           </span>
                         </div>
                       );
@@ -581,13 +619,14 @@ export default function LaporanPage() {
                     { col: "ORDER ID", alt: "Order_ID, ID Order, No Order", type: "Teks" },
                     { col: "STO", alt: "STO", type: "Teks" },
                     { col: "DATEL", alt: "DATEL", type: "Teks" },
-                    { col: "TYPE TRANSAKSI", alt: "Type_Transaksi, Jenis Transaksi, Transaksi", type: "Teks" },
-                    { col: "STATUS", alt: "Status", type: "Teks" },
-                    { col: "ORDER DATE", alt: "Order_Date, Tanggal Order, Tanggal, Date", type: "Tanggal" },
-                    { col: "CUST NAME", alt: "Cust_Name, Customer Name, Nama Pelanggan, Nama", type: "Teks" },
-                    { col: "CUST ADDRESS", alt: "Cust_Address, Customer Address, Alamat", type: "Teks" },
-                    { col: "CITY NAME", alt: "City_Name, Kota, Kecamatan, City", type: "Teks" },
-                    { col: "PACKAGE", alt: "Paket, Paket Layanan, Product, Produk", type: "Teks" },
+                    { col: "TYPE TRANSAKSI", alt: "Channel 1, Type_Transaksi, Jenis Transaksi", type: "Teks" },
+                    { col: "STATUS", alt: "Status Resume, Status", type: "Teks" },
+                    { col: "ORDER DATE", alt: "TGL PS, Order_Date, Tanggal Order", type: "Tanggal" },
+                    { col: "CUST NAME", alt: "Nama, Cust_Name, Customer Name, Nama Pelanggan", type: "Teks" },
+                    { col: "CUST ADDRESS", alt: "Install Address, Cust_Address, Customer Address, Alamat", type: "Teks" },
+                    { col: "CITY NAME", alt: "City_Name, Kota, Kecamatan, City (fallback ke DATEL)", type: "Teks" },
+                    { col: "PACKAGE", alt: "Package Name, Paket Layanan, Product, Produk", type: "Teks" },
+                    { col: "SPEED PAKET", alt: "Speed Package, Kecepatan Paket", type: "Teks" },
                   ].map((r) => (
                     <tr key={r.col}>
                       <td className="px-4 py-2.5 font-mono font-semibold text-[#171717]">{r.col}</td>

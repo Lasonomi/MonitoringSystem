@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { recordActivity } from "@/lib/activity-log";
 
 /**
  * Utility to export an array of JSON objects to an Excel (.xlsx) file.
@@ -34,4 +35,5 @@ export function exportToExcel<T extends Record<string, unknown>>(
   // Write file and trigger download
   const safeFileName = fileName.endsWith(".xlsx") ? fileName : `${fileName}.xlsx`;
   XLSX.writeFile(workbook, safeFileName);
+  recordActivity("export", safeFileName);
 }

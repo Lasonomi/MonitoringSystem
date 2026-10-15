@@ -4,13 +4,15 @@ import Link from "next/link";
 import { ArrowUpRight, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SummaryRowsSkeleton } from "@/components/ui/skeleton";
 
 interface WilayahSummaryProps {
   data?: { city_name: string; count: number }[];
   totalOrders?: number;
+  loading?: boolean;
 }
 
-export function WilayahSummary({ data = [], totalOrders = 0 }: WilayahSummaryProps) {
+export function WilayahSummary({ data = [], totalOrders = 0, loading = false }: WilayahSummaryProps) {
   const topWilayah = (data || []).slice(0, 5);
 
   return (
@@ -43,7 +45,9 @@ export function WilayahSummary({ data = [], totalOrders = 0 }: WilayahSummaryPro
       </CardHeader>
 
       <CardContent className="pt-2">
-        {topWilayah.length === 0 ? (
+        {loading ? (
+          <SummaryRowsSkeleton />
+        ) : topWilayah.length === 0 ? (
           <div className="flex h-44 flex-col items-center justify-center text-xs text-[#5c5c5c]">
             <MapPin className="mb-2 h-7 w-7 text-[#a3a3a3]" />
             <p className="font-medium">Belum ada data wilayah</p>

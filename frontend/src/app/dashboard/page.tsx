@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   ChartNoAxesCombined,
   CircleAlert,
@@ -9,7 +9,7 @@ import {
   ShoppingCart,
   Users,
   AlertCircle,
-  Loader2,
+  Building2,
 } from "lucide-react";
 
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
@@ -19,18 +19,30 @@ import { Revenuechart } from "@/components/dashboard/revenuechart";
 import { SellerSummary } from "@/components/dashboard/seller-summary";
 import { WilayahSummary } from "@/components/dashboard/wilayah-summary";
 import { HeatmapPreview } from "@/components/dashboard/heatmap-preview";
+import { KpiSkeleton } from "@/components/ui/skeleton";
 import { fetchStats, fetchMeta, type StatsResponse, type MetaResponse } from "@/lib/api";
+
+function getLocalDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export default function DashboardPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [chartYear, setChartYear] = useState(new Date().getFullYear());
+  const dateDefaultsInitialized = useRef(false);
 
   const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [chartStats, setChartStats] = useState<StatsResponse | null>(null);
   const [meta, setMeta] = useState<MetaResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [chartLoading, setChartLoading] = useState(true);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
     try {
       const [s, m] = await Promise.all([
         fetchStats({
@@ -41,6 +53,11 @@ export default function DashboardPage() {
       ]);
       setStats(s);
       setMeta(m);
+      if (!dateDefaultsInitialized.current) {
+        dateDefaultsInitialized.current = true;
+        setStartDate(m.min_order_date ?? "");
+        setEndDate(getLocalDateString());
+      }
     } catch (e) {
       console.error("Dashboard fetch error:", e);
     } finally {
@@ -48,9 +65,27 @@ export default function DashboardPage() {
     }
   }, [startDate, endDate]);
 
+  const loadChartData = useCallback(async () => {
+    try {
+      const chartYearStats = await fetchStats({
+        start_date: `${chartYear}-01-01`,
+        end_date: `${chartYear}-12-31`,
+      });
+      setChartStats(chartYearStats);
+    } catch (e) {
+      console.error("Dashboard monthly chart fetch error:", e);
+    } finally {
+      setChartLoading(false);
+    }
+  }, [chartYear]);
+
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    loadChartData();
+  }, [loadChartData]);
 
   // ─── KPI computation ───────────────────────────────────────────────────────
   const kpi = useMemo(() => {
@@ -101,10 +136,19 @@ export default function DashboardPage() {
   }, [stats]);
 
   const hasData = meta?.has_data ?? false;
+  const chartYearOptions = Array.from(
+    { length: 11 },
+    (_, index) => new Date().getFullYear() - index,
+  );
 
   const resetDate = () => {
-    setStartDate("");
-    setEndDate("");
+    setStartDate(meta?.min_order_date ?? "");
+    setEndDate(getLocalDateString());
+  };
+
+  const handleChartYearChange = (year: number) => {
+    setChartLoading(true);
+    setChartYear(year);
   };
 
   return (
@@ -213,17 +257,16 @@ export default function DashboardPage() {
         ====================================================== */}
         <section>
           {loading ? (
-            <div className="flex h-24 items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-[#5c5c5c]" />
-              <span className="ml-2 text-sm text-[#5c5c5c]">Memuat KPI...</span>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+              {Array.from({ length: 6 }, (_, index) => <KpiSkeleton key={index} />)}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
               {/* Total Order */}
               <StatCard
                 title="Total Order"
-                value={kpi.totalPenjualan.toLocaleString("id-ID")}
-                description="dari data upload"
+                value={loading ? "..." : (meta?.total_orders ?? 0).toLocaleString("id-ID")}
+                description="dari seluruh data"
                 icon={ShoppingCart}
               />
 
@@ -232,7 +275,7 @@ export default function DashboardPage() {
                 title="Top Kota"
                 value={kpi.topCity}
                 description="kota terbanyak"
-                icon={CircleDollarSign}
+                icon={Building2}
               />
 
               {/* Total Pelanggan */}
@@ -277,10 +320,16 @@ export default function DashboardPage() {
         <section>
           <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2">
             <div className="min-w-0">
-              <Linechart data={stats?.by_date || []} loading={loading} />
+              <Linechart
+                data={chartStats?.by_date || []}
+                loading={chartLoading}
+                year={chartYear}
+                onYearChange={handleChartYearChange}
+                years={chartYearOptions}
+              />
             </div>
             <div className="min-w-0">
-              <Revenuechart data={stats?.by_package || []} loading={loading} />
+              <Revenuechart data={stats?.by_service_type || []} loading={loading} />
             </div>
           </div>
         </section>
@@ -291,10 +340,18 @@ export default function DashboardPage() {
         <section>
           <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2">
             <div className="min-w-0">
-              <SellerSummary data={stats?.by_sto || []} totalOrders={stats?.total_orders || 0} />
+              <SellerSummary
+                data={stats?.by_sto || []}
+                totalOrders={stats?.total_orders || 0}
+                loading={loading}
+              />
             </div>
             <div className="min-w-0">
-              <WilayahSummary data={stats?.by_city || []} totalOrders={stats?.total_orders || 0} />
+              <WilayahSummary
+                data={stats?.by_city || []}
+                totalOrders={stats?.total_orders || 0}
+                loading={loading}
+              />
             </div>
           </div>
         </section>

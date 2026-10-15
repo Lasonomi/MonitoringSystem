@@ -11,12 +11,15 @@ class Order extends Model
         'sto',
         'datel',
         'type_transaksi',
+        'channel_1',
         'status',
         'order_date',
         'cust_name',
         'cust_address',
         'city_name',
         'package',
+        'jenis_layanan',
+        'speed_package',
     ];
 
     protected $casts = [

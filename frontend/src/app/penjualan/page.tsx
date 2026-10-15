@@ -9,7 +9,6 @@ import {
   Search,
   Filter,
   Calendar,
-  Loader2,
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
@@ -18,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/dashboard/stat-card";
+import { ChartSkeleton, KpiSkeleton, TableSkeletonRows } from "@/components/ui/skeleton";
 import {
   fetchOrders,
   fetchStats,
@@ -49,21 +49,30 @@ function StatusBadge({ status }: { status: string | null }) {
   return <Badge variant="secondary">{status ?? "-"}</Badge>;
 }
 
+function formatOrderDate(value: string | null) {
+  if (!value) return "-";
+  const date = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return date ? `${date[3]}/${date[2]}/${date[1]}` : value;
+}
+
 export default function PenjualanPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [chartYear, setChartYear] = useState(new Date().getFullYear());
 
   // API state
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [chartStats, setChartStats] = useState<StatsResponse | null>(null);
   const [meta, setMeta] = useState<MetaResponse | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalOrders, setTotalOrders] = useState(0);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [chartLoading, setChartLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const PER_PAGE = 50;
@@ -90,6 +99,21 @@ export default function PenjualanPage() {
       setStatsLoading(false);
     }
   }, [startDate, endDate]);
+
+  const loadChartStats = useCallback(async () => {
+    setChartLoading(true);
+    try {
+      const chartYearStats = await fetchStats({
+        start_date: `${chartYear}-01-01`,
+        end_date: `${chartYear}-12-31`,
+      });
+      setChartStats(chartYearStats);
+    } catch (e) {
+      console.error("Gagal memuat grafik bulanan:", e);
+    } finally {
+      setChartLoading(false);
+    }
+  }, [chartYear]);
 
   // ─── Fetch orders ────────────────────────────────────────────────────────────
   const loadOrders = useCallback(async (page = 1) => {
@@ -120,14 +144,32 @@ export default function PenjualanPage() {
     loadStats();
   }, [loadOrders, loadStats]);
 
-  // ─── Chart data dari stats ────────────────────────────────────────────────────
+  useEffect(() => {
+    loadChartStats();
+  }, [loadChartStats]);
+
+  // ─── Monthly chart data ───────────────────────────────────────────────────────
   const chartData = useMemo(() => {
-    if (!stats?.by_date) return [];
-    return stats.by_date.map((d) => ({
-      date: d.date,
-      penjualan: d.count,
+    const monthlyTotals = Array<number>(12).fill(0);
+    for (const day of chartStats?.by_date ?? []) {
+      const monthIndex = Number(day.date.slice(5, 7)) - 1;
+      if (monthIndex >= 0 && monthIndex < 12) {
+        monthlyTotals[monthIndex] += day.count;
+      }
+    }
+
+    return monthlyTotals.map((penjualan, monthIndex) => ({
+      month: new Intl.DateTimeFormat("id-ID", { month: "short" }).format(
+        new Date(chartYear, monthIndex, 1),
+      ),
+      penjualan,
     }));
-  }, [stats]);
+  }, [chartStats, chartYear]);
+
+  const chartYearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 11 }, (_, index) => currentYear - index);
+  }, []);
 
   // ─── Status filter options ────────────────────────────────────────────────────
   const statusOptions = useMemo(() => {
@@ -156,9 +198,9 @@ export default function PenjualanPage() {
       .reduce((s, [, v]) => s + v, 0);
 
     const conversionRate = total > 0 ? ((selesai / total) * 100).toFixed(1) : "0.0";
-    const topPackage = stats.by_package?.[0]?.package ?? "-";
+    const topServiceType = stats.by_service_type?.[0]?.jenis_layanan ?? "-";
 
-    return { total, selesai, conversionRate, topPackage };
+    return { total, selesai, conversionRate, topServiceType };
   }, [stats]);
 
   // ─── Export Excel ─────────────────────────────────────────────────────────────
@@ -174,7 +216,8 @@ export default function PenjualanPage() {
       "Nama Pelanggan": o.cust_name ?? "-",
       Alamat: o.cust_address ?? "-",
       Kota: o.city_name ?? "-",
-      Paket: o.package ?? "-",
+      "Jenis Layanan": o.jenis_layanan ?? "-",
+      Kecepatan: o.speed_package ?? "-",
     }));
     exportToExcel(exportData, `Data_Penjualan_${startDate || "all"}_${endDate || "all"}`);
   };
@@ -198,7 +241,7 @@ export default function PenjualanPage() {
 
           <div className="flex items-center gap-2">
             <Button
-              onClick={() => { loadOrders(1); loadStats(); }}
+              onClick={() => { loadOrders(1); loadStats(); loadChartStats(); }}
               variant="outline"
               className="h-10 rounded-xl border-[#e5e5e5] px-3 text-xs"
             >
@@ -229,11 +272,16 @@ export default function PenjualanPage() {
         )}
 
         {/* KPI Cards */}
+        {statsLoading ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }, (_, index) => <KpiSkeleton key={index} />)}
+          </div>
+        ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Total Order"
-            value={statsLoading ? "..." : (kpi?.total ?? 0).toLocaleString("id-ID")}
-            description="dari data upload"
+            value={statsLoading || !meta ? "..." : meta.total_orders.toLocaleString("id-ID")}
+            description="dari seluruh data"
             icon={ShoppingCart}
           />
           <StatCard
@@ -243,9 +291,9 @@ export default function PenjualanPage() {
             icon={CheckCircle2}
           />
           <StatCard
-            title="Top Paket"
-            value={statsLoading ? "..." : (kpi?.topPackage ?? "-")}
-            description="paket terbanyak"
+            title="Top Jenis Layanan"
+            value={statsLoading ? "..." : (kpi?.topServiceType ?? "-")}
+            description="jenis layanan terbanyak"
             icon={TrendingUp}
           />
           <StatCard
@@ -256,53 +304,41 @@ export default function PenjualanPage() {
             icon={CheckCircle2}
           />
         </div>
+        )}
 
         {/* Sales Trend Chart */}
         <Card className="rounded-2xl border border-[#e5e5e5] bg-white shadow-[0_4px_20px_rgba(23,23,23,0.05)]">
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-2">
             <div>
               <CardTitle className="text-base font-bold text-[#171717]">
-                Tren Order Harian
+                Penjualan Unit per Bulan
               </CardTitle>
               <p className="text-xs text-[#5c5c5c]">
-                Jumlah order per hari dari data yang diupload
+                Jumlah order per bulan pada tahun {chartYear}
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <div className="flex items-center gap-1.5 rounded-xl border border-[#e5e5e5] bg-[#f5f5f5] px-2.5 py-1.5">
-                <Calendar className="h-3.5 w-3.5 text-[#171717]" />
-                <label htmlFor="pj-start" className="font-medium text-[#171717]">Dari:</label>
-                <input
-                  id="pj-start"
-                  type="date"
-                  value={startDate}
-                  max={endDate || undefined}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="bg-transparent text-xs text-[#171717] outline-none cursor-pointer"
-                />
-              </div>
-              <div className="flex items-center gap-1.5 rounded-xl border border-[#e5e5e5] bg-[#f5f5f5] px-2.5 py-1.5">
-                <label htmlFor="pj-end" className="font-medium text-[#171717]">Sampai:</label>
-                <input
-                  id="pj-end"
-                  type="date"
-                  value={endDate}
-                  min={startDate || undefined}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="bg-transparent text-xs text-[#171717] outline-none cursor-pointer"
-                />
-              </div>
+            <div className="flex items-center gap-2 text-xs">
+              <Calendar className="h-3.5 w-3.5 text-[#171717]" />
+              <label htmlFor="chart-year" className="font-medium text-[#171717]">Tahun:</label>
+              <select
+                id="chart-year"
+                value={chartYear}
+                onChange={(e) => setChartYear(Number(e.target.value))}
+                className="h-9 rounded-lg border border-[#e5e5e5] bg-[#f5f5f5] px-3 text-xs text-[#171717] outline-none focus:border-[#171717]"
+              >
+                {chartYearOptions.map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
             </div>
           </CardHeader>
 
           <CardContent className="pt-2">
             <div className="h-[260px] w-full">
-              {statsLoading ? (
-                <div className="flex h-full items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-[#5c5c5c]" />
-                </div>
-              ) : chartData.length === 0 ? (
+              {chartLoading ? (
+                <ChartSkeleton />
+              ) : chartData.every((month) => month.penjualan === 0) ? (
                 <div className="flex h-full items-center justify-center text-xs text-[#5c5c5c]">
                   Tidak ada data untuk ditampilkan
                 </div>
@@ -317,11 +353,10 @@ export default function PenjualanPage() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                     <XAxis
-                      dataKey="date"
+                      dataKey="month"
                       axisLine={false}
                       tickLine={false}
                       tick={{ fontSize: 10, fill: "#5c5c5c" }}
-                      tickFormatter={(v) => v?.slice(5) ?? v}
                     />
                     <YAxis
                       axisLine={false}
@@ -336,7 +371,7 @@ export default function PenjualanPage() {
                         fontSize: "12px",
                       }}
                       cursor={{ stroke: "#5c5c5c", strokeWidth: 1 }}
-                      formatter={(value: any) => [`${value ?? 0} Order`, "Penjualan"]}
+                      formatter={(value) => [`${value ?? 0} Order`, "Penjualan"]}
                     />
                     <Area
                       type="monotone"
@@ -375,7 +410,7 @@ export default function PenjualanPage() {
                 <Search className="absolute left-3 top-3 h-4 w-4 text-[#5c5c5c]" />
                 <input
                   type="text"
-                  placeholder="Cari order ID, nama pelanggan, paket, STO..."
+                  placeholder="Cari order ID, ID pelanggan, nama pelanggan, DATEL, STO..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="h-10 w-full rounded-xl border border-[#e5e5e5] bg-[#f5f5f5]/60 pl-9 pr-4 text-xs text-[#171717] placeholder:text-[#5c5c5c] outline-none transition focus:border-[#171717] focus:bg-white"
@@ -401,6 +436,30 @@ export default function PenjualanPage() {
                   ))}
                 </div>
               </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Calendar className="h-3.5 w-3.5 text-[#171717]" />
+                <label htmlFor="orders-start" className="font-medium text-[#5c5c5c]">Tanggal:</label>
+                <input
+                  id="orders-start"
+                  type="date"
+                  aria-label="Tanggal awal daftar order"
+                  value={startDate}
+                  max={endDate || undefined}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-9 rounded-lg border border-[#e5e5e5] bg-[#f5f5f5] px-2 text-xs text-[#171717] outline-none focus:border-[#171717]"
+                />
+                <span className="text-[#5c5c5c]">s.d.</span>
+                <input
+                  id="orders-end"
+                  type="date"
+                  aria-label="Tanggal akhir daftar order"
+                  value={endDate}
+                  min={startDate || undefined}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="h-9 rounded-lg border border-[#e5e5e5] bg-[#f5f5f5] px-2 text-xs text-[#171717] outline-none focus:border-[#171717]"
+                />
+              </div>
             </div>
           </CardHeader>
 
@@ -418,17 +477,12 @@ export default function PenjualanPage() {
                     <th className="px-4 py-3.5">Nama Pelanggan</th>
                     <th className="px-4 py-3.5">Alamat</th>
                     <th className="px-4 py-3.5">Kota</th>
-                    <th className="px-4 py-3.5">Paket</th>
+                    <th className="px-4 py-3.5">Jenis Layanan</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#f0f0f0]">
+                <tbody aria-busy={loading} className="divide-y divide-[#f0f0f0]">
                   {loading ? (
-                    <tr>
-                      <td colSpan={10} className="py-12 text-center">
-                        <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#5c5c5c]" />
-                        <p className="mt-2 text-xs text-[#5c5c5c]">Memuat data...</p>
-                      </td>
-                    </tr>
+                    <TableSkeletonRows rows={6} columns={10} />
                   ) : error ? (
                     <tr>
                       <td colSpan={10} className="py-8 text-center">
@@ -467,7 +521,7 @@ export default function PenjualanPage() {
                           <StatusBadge status={item.status} />
                         </td>
                         <td className="px-4 py-3.5 text-xs text-[#5c5c5c]">
-                          {item.order_date ?? "-"}
+                          {formatOrderDate(item.order_date)}
                         </td>
                         <td className="px-4 py-3.5">
                           <p className="font-semibold text-xs text-[#171717]">
@@ -481,9 +535,11 @@ export default function PenjualanPage() {
                           {item.city_name ?? "-"}
                         </td>
                         <td className="px-4 py-3.5">
-                          <span className="rounded-md bg-[#f3f3f3] px-2 py-0.5 text-xs text-[#171717]">
-                            {item.package ?? "-"}
-                          </span>
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="rounded-md bg-[#f3f3f3] px-2 py-0.5 text-xs text-[#171717]">
+                              {item.jenis_layanan ?? "-"}
+                            </span>
+                          </div>
                         </td>
                       </tr>
                     ))

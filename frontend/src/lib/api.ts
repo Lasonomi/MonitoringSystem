@@ -1,3 +1,5 @@
+import { recordActivity } from "@/lib/activity-log";
+
 /**
  * api.ts
  * Thin client untuk berkomunikasi dengan Laravel backend.
@@ -14,12 +16,15 @@ export interface OrderRecord {
   sto: string | null;
   datel: string | null;
   type_transaksi: string | null;
+  channel_1: string | null;
   status: string | null;
   order_date: string | null;
   cust_name: string | null;
   cust_address: string | null;
   city_name: string | null;
   package: string | null;
+  jenis_layanan: string | null;
+  speed_package: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -43,6 +48,7 @@ export interface StatsResponse {
   by_status: Record<string, number>;
   by_city: { city_name: string; count: number }[];
   by_package: { package: string; count: number }[];
+  by_service_type: { jenis_layanan: string; count: number }[];
   by_date: { date: string; count: number }[];
   by_type_transaksi: { type_transaksi: string; count: number }[];
   by_sto?: { sto: string; count: number }[];
@@ -52,9 +58,12 @@ export interface StatsResponse {
 export interface MetaResponse {
   success: boolean;
   has_data: boolean;
+  total_orders: number;
+  min_order_date: string | null;
   statuses: string[];
   cities: string[];
   packages: string[];
+  service_types: string[];
   stos: string[];
   datels: string[];
 }
@@ -64,6 +73,7 @@ export interface UploadResponse {
   message: string;
   imported?: number;
   skipped?: number;
+  filtered?: number;
   columns?: string[];
 }
 
@@ -109,9 +119,10 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
 /**
  * Upload file Excel ke backend untuk diimport ke database.
  */
-export async function uploadOrders(file: File): Promise<UploadResponse> {
+export async function uploadOrders(file: File, datelFilter?: string): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
+  if (datelFilter) form.append("datel_filter", datelFilter);
 
   const res = await fetch(`${BASE}/orders/upload`, {
     method: "POST",
@@ -127,6 +138,7 @@ export async function uploadOrders(file: File): Promise<UploadResponse> {
     throw new Error(data.message || `Upload gagal (${res.status})`);
   }
 
+  recordActivity("upload", file.name);
   return data;
 }
 

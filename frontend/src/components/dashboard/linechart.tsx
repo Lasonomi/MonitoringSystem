@@ -11,29 +11,41 @@ import {
   YAxis,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
-
-function formatDate(dateStr: string) {
-  if (!dateStr) return "";
-  const parts = dateStr.split("-");
-  if (parts.length === 3) {
-    return `${parts[2]}/${parts[1]}`;
-  }
-  return dateStr;
-}
+import { Calendar } from "lucide-react";
+import { ChartSkeleton } from "@/components/ui/skeleton";
 
 interface LinechartProps {
   data?: { date: string; count: number }[];
   loading?: boolean;
+  year: number;
+  years: number[];
+  onYearChange: (year: number) => void;
 }
 
-export function Linechart({ data = [], loading = false }: LinechartProps) {
+export function Linechart({
+  data = [],
+  loading = false,
+  year,
+  years,
+  onYearChange,
+}: LinechartProps) {
   const chartData = useMemo(() => {
-    return (data || []).map((item) => ({
-      date: item.date,
-      penjualan: item.count,
+    const monthlyTotals = Array<number>(12).fill(0);
+
+    for (const item of data) {
+      const monthIndex = Number(item.date.slice(5, 7)) - 1;
+      if (monthIndex >= 0 && monthIndex < 12) {
+        monthlyTotals[monthIndex] += item.count;
+      }
+    }
+
+    return monthlyTotals.map((penjualan, monthIndex) => ({
+      month: new Intl.DateTimeFormat("id-ID", { month: "short" }).format(
+        new Date(year, monthIndex, 1),
+      ),
+      penjualan,
     }));
-  }, [data]);
+  }, [data, year]);
 
   const totalPenjualanPeriod = useMemo(() => {
     return chartData.reduce((acc, curr) => acc + curr.penjualan, 0);
@@ -53,8 +65,24 @@ export function Linechart({ data = [], loading = false }: LinechartProps) {
               </span>
             </div>
             <p className="mt-1 text-xs text-[#5c5c5c]">
-              Tren volume order per tanggal (data riil database)
+              Tren volume order per bulan pada tahun {year}
             </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <Calendar className="h-3.5 w-3.5 text-[#171717]" />
+            <label htmlFor="dashboard-chart-year" className="font-medium text-[#171717]">
+              Tahun:
+            </label>
+            <select
+              id="dashboard-chart-year"
+              value={year}
+              onChange={(event) => onYearChange(Number(event.target.value))}
+              className="h-9 rounded-lg border border-[#e5e5e5] bg-white px-3 text-xs text-[#171717] outline-none focus:border-[#171717]"
+            >
+              {years.map((optionYear) => (
+                <option key={optionYear} value={optionYear}>{optionYear}</option>
+              ))}
+            </select>
           </div>
         </div>
       </CardHeader>
@@ -62,11 +90,8 @@ export function Linechart({ data = [], loading = false }: LinechartProps) {
       <CardContent className="pt-2">
         <div className="h-[280px] w-full">
           {loading ? (
-            <div className="flex h-full items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-[#5c5c5c]" />
-              <span className="ml-2 text-xs text-[#5c5c5c]">Memuat data grafik...</span>
-            </div>
-          ) : chartData.length === 0 ? (
+            <ChartSkeleton />
+          ) : chartData.every((month) => month.penjualan === 0) ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-[#5c5c5c]">
               <p className="text-xs font-medium">Belum ada data grafik penjualan.</p>
               <p className="text-[11px] text-[#737373]">
@@ -81,8 +106,7 @@ export function Linechart({ data = [], loading = false }: LinechartProps) {
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                 <XAxis
-                  dataKey="date"
-                  tickFormatter={formatDate}
+                  dataKey="month"
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 11, fill: "#5c5c5c" }}
@@ -101,8 +125,8 @@ export function Linechart({ data = [], loading = false }: LinechartProps) {
                     boxShadow: "0 4px 15px rgba(0,0,0,0.08)",
                     fontSize: "12px",
                   }}
-                  labelFormatter={(value) => `Tanggal: ${value}`}
-                  formatter={(value: any) => [`${value ?? 0} Order`, "Penjualan"]}
+                  labelFormatter={(value) => `Bulan: ${value}`}
+                  formatter={(value) => [`${value ?? 0} Order`, "Penjualan"]}
                 />
                 <Line
                   type="monotone"

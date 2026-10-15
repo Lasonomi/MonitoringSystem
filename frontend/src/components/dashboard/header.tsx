@@ -10,11 +10,16 @@ import {
   User,
   Settings,
   LogOut,
-  CheckCircle2,
-  AlertCircle,
+  Upload,
+  Download,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  getActivities,
+  subscribeToActivities,
+  type ActivityEntry,
+} from "@/lib/activity-log";
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
   "/dashboard": {
@@ -58,6 +63,7 @@ export function Header({ onToggleMobileMenu, title, subtitle }: HeaderProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activities, setActivities] = useState<ActivityEntry[]>(() => getActivities());
 
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -74,6 +80,10 @@ export function Header({ onToggleMobileMenu, title, subtitle }: HeaderProps) {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    return subscribeToActivities(() => setActivities(getActivities()));
   }, []);
 
   const currentInfo = pageTitles[pathname || "/dashboard"] || {
@@ -140,33 +150,48 @@ export function Header({ onToggleMobileMenu, title, subtitle }: HeaderProps) {
           {notifOpen && (
             <div className="absolute right-0 mt-2 w-80 rounded-2xl border border-[#e5e5e5] bg-white p-3 shadow-xl z-50 animate-in fade-in slide-in-from-top-2">
               <div className="flex items-center justify-between border-b border-[#e5e5e5] pb-2 px-1">
-                <p className="font-bold text-xs text-[#171717]">Notifikasi Sistem</p>
+                <p className="font-bold text-xs text-[#171717]">Aktivitas Terbaru</p>
                 <span className="text-[10px] font-semibold text-[#d51100] bg-[#d51100]/10 px-1.5 py-0.5 rounded">
-                  2 Baru
+                  {activities.length}
                 </span>
               </div>
-              <div className="mt-2 space-y-2 text-xs">
-                <div className="flex gap-2.5 rounded-xl p-2 bg-[#f5f5f5] hover:bg-[#e5e5e5]/50 transition">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-[#171717]">Instalasi Selesai</p>
-                    <p className="text-[11px] text-[#5c5c5c]">
-                      Dinas Kominfo Kab. Lumajang 100M aktif
-                    </p>
-                    <span className="text-[10px] text-[#5c5c5c]/70">10 menit lalu</span>
-                  </div>
-                </div>
-
-                <div className="flex gap-2.5 rounded-xl p-2 hover:bg-[#f5f5f5] transition">
-                  <AlertCircle className="h-4 w-4 text-[#d51100] shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-[#171717]">Peringatan Kapasitas</p>
-                    <p className="text-[11px] text-[#5c5c5c]">
-                      Node Sukodono mendekati occupancy 82%
-                    </p>
-                    <span className="text-[10px] text-[#5c5c5c]/70">1 jam lalu</span>
-                  </div>
-                </div>
+              <div className="mt-2 max-h-80 space-y-2 overflow-y-auto text-xs">
+                {activities.length === 0 ? (
+                  <p className="px-2 py-4 text-center text-[11px] text-[#5c5c5c]">
+                    Belum ada aktivitas upload atau ekspor.
+                  </p>
+                ) : (
+                  activities.map((activity) => {
+                    const ActivityIcon = activity.type === "upload" ? Upload : Download;
+                    const date = new Date(activity.createdAt);
+                    return (
+                      <div
+                        key={activity.id}
+                        className="flex gap-2.5 rounded-xl p-2 hover:bg-[#f5f5f5] transition"
+                      >
+                        <ActivityIcon
+                          className={`h-4 w-4 shrink-0 mt-0.5 ${
+                            activity.type === "upload" ? "text-emerald-600" : "text-[#171717]"
+                          }`}
+                        />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[#171717]">
+                            {activity.type === "upload" ? "Upload berhasil" : "Ekspor berhasil"}
+                          </p>
+                          <p className="truncate text-[11px] text-[#5c5c5c]">
+                            {activity.fileName}
+                          </p>
+                          <span className="text-[10px] text-[#5c5c5c]/70">
+                            {new Intl.DateTimeFormat("id-ID", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            }).format(date)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           )}

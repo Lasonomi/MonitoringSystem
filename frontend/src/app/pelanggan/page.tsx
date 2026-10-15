@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
-  Loader2,
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
@@ -17,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/dashboard/stat-card";
+import { KpiSkeleton, TableSkeletonRows } from "@/components/ui/skeleton";
 import { fetchOrders, fetchStats, fetchMeta, type OrderRecord } from "@/lib/api";
 import { exportToExcel } from "@/lib/excel";
 
@@ -46,6 +46,12 @@ function StatusBadge({ status }: { status: string | null }) {
   return <Badge variant="outline">{status ?? "-"}</Badge>;
 }
 
+function formatOrderDate(value: string | null) {
+  if (!value) return "-";
+  const date = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return date ? `${date[3]}/${date[2]}/${date[1]}` : value;
+}
+
 export default function PelangganPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua");
@@ -59,6 +65,7 @@ export default function PelangganPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   // Meta
   const [statuses, setStatuses] = useState<string[]>([]);
@@ -90,7 +97,8 @@ export default function PelangganPage() {
           .reduce((acc, [, v]) => acc + v, 0);
         setStatsData({ total: s.total_orders, selesai, byStatus });
       })
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => setStatsLoading(false));
   }, []);
 
   // ─── Load orders ──────────────────────────────────────────────────────────────
@@ -134,11 +142,11 @@ export default function PelangganPage() {
         DATEL: o.datel ?? "",
         "Type Transaksi": o.type_transaksi ?? "",
         Status: o.status ?? "",
-        "Order Date": o.order_date ?? "",
+        "Order Date": formatOrderDate(o.order_date),
         "Nama Pelanggan": o.cust_name ?? "",
         Alamat: o.cust_address ?? "",
         Kota: o.city_name ?? "",
-        Paket: o.package ?? "",
+        "Jenis Layanan": o.jenis_layanan ?? "",
       }));
       exportToExcel(exportData, "Data_Pelanggan_Order");
     } catch (e) {
@@ -200,6 +208,11 @@ export default function PelangganPage() {
         )}
 
         {/* KPI Cards */}
+        {statsLoading ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }, (_, index) => <KpiSkeleton key={index} />)}
+          </div>
+        ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Total Order"
@@ -235,6 +248,7 @@ export default function PelangganPage() {
             icon={Users}
           />
         </div>
+        )}
 
         {/* Table */}
         <Card className="rounded-2xl border border-[#e5e5e5] bg-white shadow-[0_4px_20px_rgba(23,23,23,0.05)]">
@@ -257,7 +271,7 @@ export default function PelangganPage() {
                 <Search className="absolute left-3 top-3 h-4 w-4 text-[#5c5c5c]" />
                 <input
                   type="text"
-                  placeholder="Cari nama, order ID, paket, STO..."
+                  placeholder="Cari nama pelanggan, ID pelanggan, DATEL, STO..."
                   value={searchTerm}
                   onChange={(e) => {
                     setSearchTerm(e.target.value);
@@ -314,21 +328,16 @@ export default function PelangganPage() {
                     <th className="px-4 py-3.5">Order ID</th>
                     <th className="px-4 py-3.5">Nama Pelanggan</th>
                     <th className="px-4 py-3.5">Kota</th>
-                    <th className="px-4 py-3.5">Paket</th>
+                    <th className="px-4 py-3.5">Jenis Layanan</th>
                     <th className="px-4 py-3.5">STO / DATEL</th>
                     <th className="px-4 py-3.5">Type Transaksi</th>
                     <th className="px-4 py-3.5 text-center">Status</th>
                     <th className="px-4 py-3.5 text-center">Order Date</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#f0f0f0]">
+                <tbody aria-busy={loading} className="divide-y divide-[#f0f0f0]">
                   {loading ? (
-                    <tr>
-                      <td colSpan={8} className="py-12 text-center">
-                        <Loader2 className="mx-auto h-6 w-6 animate-spin text-[#5c5c5c]" />
-                        <p className="mt-2 text-xs text-[#5c5c5c]">Memuat data...</p>
-                      </td>
-                    </tr>
+                    <TableSkeletonRows rows={6} columns={8} />
                   ) : error ? (
                     <tr>
                       <td colSpan={8} className="py-8 text-center">
@@ -366,9 +375,11 @@ export default function PelangganPage() {
                           {o.city_name ?? "-"}
                         </td>
                         <td className="px-4 py-3.5">
-                          <span className="rounded-md bg-[#f3f3f3] px-2 py-0.5 text-xs font-medium text-[#171717] group-hover:bg-[#171717] group-hover:text-white transition-colors duration-150">
-                            {o.package ?? "-"}
-                          </span>
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="rounded-md bg-[#f3f3f3] px-2 py-0.5 text-xs font-medium text-[#171717] group-hover:bg-[#171717] group-hover:text-white transition-colors duration-150">
+                              {o.jenis_layanan ?? "-"}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-4 py-3.5 text-xs text-[#5c5c5c]">
                           <span>{o.sto ?? "-"}</span>
@@ -385,7 +396,7 @@ export default function PelangganPage() {
                           <StatusBadge status={o.status} />
                         </td>
                         <td className="px-4 py-3.5 text-center text-xs text-[#5c5c5c]">
-                          {o.order_date ?? "-"}
+                          {formatOrderDate(o.order_date)}
                         </td>
                       </tr>
                     ))

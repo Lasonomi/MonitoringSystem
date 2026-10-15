@@ -6,6 +6,7 @@ use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class OrderController extends Controller
@@ -23,6 +24,15 @@ class OrderController extends Controller
         'no order'        => 'order_id',
         'nomor order'     => 'order_id',
 
+        // ID pelanggan menggunakan ID order yang sama
+        'customer id'     => 'order_id',
+        'customer_id'     => 'order_id',
+        'customerid'      => 'order_id',
+        'cust id'         => 'order_id',
+        'cust_id'         => 'order_id',
+        'id pelanggan'    => 'order_id',
+        'id customer'     => 'order_id',
+
         // sto
         'sto'             => 'sto',
 
@@ -35,13 +45,16 @@ class OrderController extends Controller
         'tipe transaksi'  => 'type_transaksi',
         'jenis transaksi' => 'type_transaksi',
         'transaksi'       => 'type_transaksi',
+        'channel 1'       => 'channel_1',
 
         // status
         'status'          => 'status',
+        'status resume'   => 'status',
 
         // order_date
         'order date'      => 'order_date',
         'order_date'      => 'order_date',
+        'tgl ps'          => 'order_date',
         'tanggal order'   => 'order_date',
         'tgl order'       => 'order_date',
         'tanggal'         => 'order_date',
@@ -63,6 +76,7 @@ class OrderController extends Controller
         'alamat customer' => 'cust_address',
         'alamat'          => 'cust_address',
         'address'         => 'cust_address',
+        'install address' => 'cust_address',
 
         // city_name
         'city name'       => 'city_name',
@@ -76,9 +90,21 @@ class OrderController extends Controller
         'package'         => 'package',
         'paket'           => 'package',
         'paket layanan'   => 'package',
+        'package name'    => 'package',
         'layanan'         => 'package',
         'product'         => 'package',
         'produk'          => 'package',
+
+        // jenis_layanan
+        'jenis layanan'   => 'jenis_layanan',
+        'jenis_layanan'   => 'jenis_layanan',
+        'service type'    => 'jenis_layanan',
+        'service_type'    => 'jenis_layanan',
+
+        // speed_package
+        'speed paket'     => 'speed_package',
+        'speed package'   => 'speed_package',
+        'kecepatan paket' => 'speed_package',
     ];
 
     // ──────────────────────────────────────────────────────────────
@@ -141,50 +167,81 @@ class OrderController extends Controller
             ], 422);
         }
 
-        // Hapus data lama sebelum import baru
-        Order::truncate();
+        $datelFilter = $request->validate([
+            'datel_filter' => ['nullable', 'string', 'max:255'],
+        ])['datel_filter'] ?? null;
+        $datelColumn = array_search('datel', $fieldIndex, true);
+
+        if ($datelFilter !== null && $datelColumn === false) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Filter wilayah dipilih, tetapi kolom DATEL tidak ditemukan di file.',
+            ], 422);
+        }
 
         $imported = 0;
         $skipped  = 0;
-        $batch    = [];
+        $filtered = 0;
+        DB::transaction(function () use ($rows, $fieldIndex, $datelFilter, $datelColumn, &$imported, &$skipped, &$filtered): void {
+            $batch = [];
 
-        foreach ($rows as $row) {
-            // Skip baris kosong
-            $values = array_filter(array_values($row), fn($v) => $v !== null && $v !== '');
-            if (empty($values)) {
-                $skipped++;
-                continue;
+            foreach ($rows as $row) {
+                // Skip baris kosong
+                $values = array_filter(array_values($row), fn($v) => $v !== null && $v !== '');
+                if (empty($values)) {
+                    $skipped++;
+                    continue;
+                }
+
+                if ($datelFilter !== null) {
+                    $rowDatel = trim((string) ($row[$datelColumn] ?? ''));
+                    if (!$this->matchesDatel($rowDatel, $datelFilter)) {
+                        $skipped++;
+                        $filtered++;
+                        continue;
+                    }
+                }
+
+                $record = [];
+                foreach ($fieldIndex as $colLetter => $dbField) {
+                    $raw = $row[$colLetter] ?? null;
+                    $record[$dbField] = $this->castValue($dbField, $raw);
+                }
+
+                if ($this->hasValue($record['channel_1'] ?? null)) {
+                    $record['type_transaksi'] = $record['channel_1'];
+                }
+
+                if (!$this->hasValue($record['order_id'] ?? null)) {
+                    $skipped++;
+                    continue;
+                }
+
+                $now = now()->toDateTimeString();
+                $record['created_at'] = $now;
+                $record['updated_at'] = $now;
+
+                $batch[] = $record;
+                $imported++;
+
+                // Batch insert setiap 500 baris
+                if (count($batch) >= 500) {
+                    $this->persistImportBatch($batch);
+                    $batch = [];
+                }
             }
 
-            $record = [];
-            foreach ($fieldIndex as $colLetter => $dbField) {
-                $raw = $row[$colLetter] ?? null;
-                $record[$dbField] = $this->castValue($dbField, $raw);
+            if (!empty($batch)) {
+                $this->persistImportBatch($batch);
             }
-
-            $now = now()->toDateTimeString();
-            $record['created_at'] = $now;
-            $record['updated_at'] = $now;
-
-            $batch[] = $record;
-            $imported++;
-
-            // Batch insert setiap 500 baris
-            if (count($batch) >= 500) {
-                Order::insert($batch);
-                $batch = [];
-            }
-        }
-
-        if (!empty($batch)) {
-            Order::insert($batch);
-        }
+        });
 
         return response()->json([
             'success'  => true,
             'message'  => "Berhasil mengimport {$imported} data order.",
             'imported' => $imported,
             'skipped'  => $skipped,
+            'filtered' => $filtered,
             'columns'  => array_values($fieldIndex),
         ]);
     }
@@ -203,6 +260,8 @@ class OrderController extends Controller
                 $q->where('order_id',   'like', "%{$search}%")
                   ->orWhere('cust_name','like', "%{$search}%")
                   ->orWhere('package',  'like', "%{$search}%")
+                  ->orWhere('jenis_layanan', 'like', "%{$search}%")
+                  ->orWhere('speed_package', 'like', "%{$search}%")
                   ->orWhere('sto',      'like', "%{$search}%")
                   ->orWhere('datel',    'like', "%{$search}%");
             });
@@ -274,8 +333,16 @@ class OrderController extends Controller
             ->get();
 
         $byPackage = (clone $query)
-            ->selectRaw('package, COUNT(*) as count')
-            ->groupBy('package')
+            ->selectRaw("COALESCE(NULLIF(package, ''), NULLIF(speed_package, '')) as package, COUNT(*) as count")
+            ->groupByRaw("COALESCE(NULLIF(package, ''), NULLIF(speed_package, ''))")
+            ->orderByDesc('count')
+            ->get();
+
+        $byServiceType = (clone $query)
+            ->selectRaw('jenis_layanan, COUNT(*) as count')
+            ->whereNotNull('jenis_layanan')
+            ->where('jenis_layanan', '!=', '')
+            ->groupBy('jenis_layanan')
             ->orderByDesc('count')
             ->get();
 
@@ -313,6 +380,7 @@ class OrderController extends Controller
             'by_status'         => $byStatus,
             'by_city'           => $byCity,
             'by_package'        => $byPackage,
+            'by_service_type'   => $byServiceType,
             'by_date'           => $byDate,
             'by_type_transaksi' => $byTypeTransaksi,
             'by_sto'            => $bySto,
@@ -328,17 +396,34 @@ class OrderController extends Controller
     {
         $statuses  = Order::distinct()->pluck('status')->filter()->values();
         $cities    = Order::distinct()->orderBy('city_name')->pluck('city_name')->filter()->values();
-        $packages  = Order::distinct()->orderBy('package')->pluck('package')->filter()->values();
+        $packages  = Order::query()
+            ->selectRaw("DISTINCT COALESCE(NULLIF(package, ''), NULLIF(speed_package, '')) as package")
+            ->orderBy('package')
+            ->pluck('package')
+            ->filter()
+            ->values();
+        $serviceTypes = Order::query()
+            ->whereNotNull('jenis_layanan')
+            ->where('jenis_layanan', '!=', '')
+            ->distinct()
+            ->orderBy('jenis_layanan')
+            ->pluck('jenis_layanan')
+            ->values();
         $stos      = Order::distinct()->orderBy('sto')->pluck('sto')->filter()->values();
         $datels    = Order::distinct()->orderBy('datel')->pluck('datel')->filter()->values();
         $hasData   = Order::exists();
+        $minOrderDate = Order::query()->whereNotNull('order_date')->min('order_date');
+        $minOrderDate = $minOrderDate ? Carbon::parse($minOrderDate)->toDateString() : null;
 
         return response()->json([
             'success'  => true,
             'has_data' => $hasData,
+            'total_orders' => Order::count(),
+            'min_order_date' => $minOrderDate,
             'statuses' => $statuses,
             'cities'   => $cities,
             'packages' => $packages,
+            'service_types' => $serviceTypes,
             'stos'     => $stos,
             'datels'   => $datels,
         ]);
@@ -372,6 +457,85 @@ class OrderController extends Controller
             }
         }
         return $index;
+    }
+
+    private function persistImportBatch(array $batch): void
+    {
+        $orderIds = array_values(array_unique(array_column($batch, 'order_id')));
+        $existingByOrderId = Order::query()
+            ->whereIn('order_id', $orderIds)
+            ->orderByDesc('id')
+            ->get()
+            ->groupBy('order_id')
+            ->map(fn($orders) => $orders->first());
+
+        $updatesById = [];
+        $newByOrderId = [];
+
+        foreach ($batch as $record) {
+            $orderId = (string) $record['order_id'];
+            $existing = $existingByOrderId->get($orderId);
+
+            if ($existing) {
+                $current = $updatesById[$existing->id] ?? $existing->getAttributes();
+                foreach ($record as $field => $value) {
+                    if (!in_array($field, ['id', 'created_at', 'updated_at'], true) && $this->hasValue($value)) {
+                        $current[$field] = $value;
+                    }
+                }
+                if (!$this->hasValue($current['city_name'] ?? null) && $this->hasValue($current['datel'] ?? null)) {
+                    $current['city_name'] = $current['datel'];
+                }
+                if ($this->hasValue($current['channel_1'] ?? null)) {
+                    $current['type_transaksi'] = $current['channel_1'];
+                }
+                $current['updated_at'] = $record['updated_at'];
+                $updatesById[$existing->id] = $current;
+                continue;
+            }
+
+            $current = $newByOrderId[$orderId] ?? $record;
+            if (isset($newByOrderId[$orderId])) {
+                foreach ($record as $field => $value) {
+                    if (!in_array($field, ['id', 'created_at', 'updated_at'], true) && $this->hasValue($value)) {
+                        $current[$field] = $value;
+                    }
+                }
+                $current['updated_at'] = $record['updated_at'];
+            }
+            if (!$this->hasValue($current['city_name'] ?? null) && $this->hasValue($current['datel'] ?? null)) {
+                $current['city_name'] = $current['datel'];
+            }
+            if ($this->hasValue($current['channel_1'] ?? null)) {
+                $current['type_transaksi'] = $current['channel_1'];
+            }
+            $newByOrderId[$orderId] = $current;
+        }
+
+        if ($updatesById !== []) {
+            Order::upsert(
+                array_values($updatesById),
+                ['id'],
+                ['order_id', 'sto', 'datel', 'type_transaksi', 'channel_1', 'status', 'order_date', 'cust_name', 'cust_address', 'city_name', 'package', 'jenis_layanan', 'speed_package', 'updated_at']
+            );
+        }
+
+        if ($newByOrderId !== []) {
+            Order::insert(array_values($newByOrderId));
+        }
+    }
+
+    private function matchesDatel(string $datel, string $filter): bool
+    {
+        $parts = preg_split('/[\/,|]+/', mb_strtoupper($datel)) ?: [];
+        $parts = array_map('trim', $parts);
+
+        return in_array(mb_strtoupper(trim($filter)), $parts, true);
+    }
+
+    private function hasValue(mixed $value): bool
+    {
+        return $value !== null && trim((string) $value) !== '';
     }
 
     /**
