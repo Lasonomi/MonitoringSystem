@@ -17,7 +17,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { KpiSkeleton, TableSkeletonRows } from "@/components/ui/skeleton";
-import { fetchOrders, fetchStats, fetchMeta, type OrderRecord } from "@/lib/api";
+import {
+  fetchOrders,
+  fetchStats,
+  fetchMeta,
+  fetchUploadReportSummary,
+  type OrderRecord,
+  type UploadReportSummary,
+} from "@/lib/api";
 import { exportToExcel } from "@/lib/excel";
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
@@ -66,6 +73,7 @@ export default function PelangganPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [reportSummary, setReportSummary] = useState<UploadReportSummary | null>(null);
 
   // Meta
   const [statuses, setStatuses] = useState<string[]>([]);
@@ -73,29 +81,23 @@ export default function PelangganPage() {
   const [statsData, setStatsData] = useState<{
     total: number;
     selesai: number;
-    byStatus: Record<string, number>;
+    paid: number;
+    unpaid: number;
   } | null>(null);
 
   // ─── Load meta + stats ────────────────────────────────────────────────────────
   useEffect(() => {
-    Promise.all([fetchMeta(), fetchStats()])
-      .then(([m, s]) => {
-        setStatuses(m.statuses);
+    Promise.all([fetchMeta(), fetchStats(), fetchUploadReportSummary()])
+      .then(([m, s, report]) => {
+        setStatuses(m.payment_statuses);
         setCities(m.cities);
-        const byStatus = s.by_status ?? {};
-        const selesai = Object.entries(byStatus)
-          .filter(([k]) => {
-            const kl = k.toLowerCase();
-            return (
-              kl.includes("sukses") ||
-              kl.includes("selesai") ||
-              kl.includes("done") ||
-              kl.includes("complete") ||
-              kl.includes("success")
-            );
-          })
-          .reduce((acc, [, v]) => acc + v, 0);
-        setStatsData({ total: s.total_orders, selesai, byStatus });
+        setReportSummary(report);
+        setStatsData({
+          total: s.total_orders,
+          selesai: s.paid_orders,
+          paid: s.paid_orders,
+          unpaid: s.unpaid_orders,
+        });
       })
       .catch(console.error)
       .finally(() => setStatsLoading(false));
@@ -109,7 +111,7 @@ export default function PelangganPage() {
       try {
         const res = await fetchOrders({
           search: searchTerm || undefined,
-          status: statusFilter !== "Semua" ? statusFilter : undefined,
+          payment_status: statusFilter !== "Semua" ? statusFilter : undefined,
           city: cityFilter !== "Semua" ? cityFilter : undefined,
           per_page: PER_PAGE,
           page,
@@ -168,7 +170,7 @@ export default function PelangganPage() {
             </h1>
             <p className="text-xs text-[#5c5c5c]">
               Data pelanggan dari file Excel yang diupload ·{" "}
-              {totalOrders.toLocaleString("id-ID")} record ditemukan
+              {loading ? "Memuat data..." : `${totalOrders.toLocaleString("id-ID")} record ditemukan`}
             </p>
           </div>
 
@@ -192,7 +194,7 @@ export default function PelangganPage() {
         </div>
 
         {/* No data banner */}
-        {!loading && totalOrders === 0 && (
+        {!loading && !statsLoading && statsData?.total === 0 && (
           <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
             <AlertCircle className="h-5 w-5 shrink-0 text-amber-600" />
             <div>
@@ -216,14 +218,14 @@ export default function PelangganPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Total Order"
-            value={loading ? "..." : totalOrders.toLocaleString("id-ID")}
+            value={statsData ? statsData.total.toLocaleString("id-ID") : "..."}
             description="seluruh data"
             icon={Users}
           />
           <StatCard
             title="Order Selesai"
             value={statsData ? statsData.selesai.toLocaleString("id-ID") : "..."}
-            description="status selesai"
+            description="status PAYABLE"
             icon={Users}
           />
           <StatCard
@@ -239,12 +241,42 @@ export default function PelangganPage() {
                 ? `${((statsData.selesai / statsData.total) * 100).toFixed(1)}%`
                 : "0%"
             }
-            description="order selesai / total"
+            description="PAYABLE ÷ seluruh order"
             progress={
               statsData && statsData.total > 0
                 ? (statsData.selesai / statsData.total) * 100
                 : 0
             }
+            icon={Users}
+          />
+          <StatCard
+            title="Sudah Bayar"
+            value={
+              statsData && statsData.paid + statsData.unpaid > 0
+                ? statsData.paid.toLocaleString("id-ID")
+                : "N/A"
+            }
+            description="status PAYABLE"
+            icon={Users}
+          />
+          <StatCard
+            title="Belum Bayar"
+            value={
+              statsData && statsData.paid + statsData.unpaid > 0
+                ? statsData.unpaid.toLocaleString("id-ID")
+                : "N/A"
+            }
+            description="NONPAYABLE / BELUM BAYAR"
+            icon={Users}
+          />
+          <StatCard
+            title="Pelanggan Baru"
+            value={
+              reportSummary?.latest?.identified_customers
+                ? reportSummary.latest.new_customers.toLocaleString("id-ID")
+                : "N/A"
+            }
+            description="Customer ID baru pada upload terakhir"
             icon={Users}
           />
         </div>
@@ -393,7 +425,7 @@ export default function PelangganPage() {
                           {o.type_transaksi ?? "-"}
                         </td>
                         <td className="px-4 py-3.5 text-center">
-                          <StatusBadge status={o.status} />
+                          <StatusBadge status={o.payment_status ?? o.status} />
                         </td>
                         <td className="px-4 py-3.5 text-center text-xs text-[#5c5c5c]">
                           {formatOrderDate(o.order_date)}

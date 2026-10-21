@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\UploadReport;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
@@ -25,16 +26,20 @@ class OrderController extends Controller
         'nomor order'     => 'order_id',
 
         // ID pelanggan menggunakan ID order yang sama
-        'customer id'     => 'order_id',
-        'customer_id'     => 'order_id',
-        'customerid'      => 'order_id',
-        'cust id'         => 'order_id',
-        'cust_id'         => 'order_id',
-        'id pelanggan'    => 'order_id',
-        'id customer'     => 'order_id',
+        'customer id'     => 'customer_id',
+        'customer_id'     => 'customer_id',
+        'customerid'      => 'customer_id',
+        'account_num'     => 'customer_id',
+        'internet id'    => 'customer_id',
+        'internet_id'    => 'customer_id',
+        'cust id'         => 'customer_id',
+        'cust_id'         => 'customer_id',
+        'id pelanggan'    => 'customer_id',
+        'id customer'     => 'customer_id',
 
         // sto
         'sto'             => 'sto',
+        'csto'            => 'sto',
 
         // datel
         'datel'           => 'datel',
@@ -45,11 +50,18 @@ class OrderController extends Controller
         'tipe transaksi'  => 'type_transaksi',
         'jenis transaksi' => 'type_transaksi',
         'transaksi'       => 'type_transaksi',
+        'event_source_txt'=> 'type_transaksi',
         'channel 1'       => 'channel_1',
 
         // status
-        'status'          => 'status',
+        'status'          => 'payment_status',
         'status resume'   => 'status',
+        'trend'           => 'status',
+
+        // payment amount
+        'tagihan'         => 'amount',
+        'nominal tagihan' => 'amount',
+        'amount'          => 'amount',
 
         // order_date
         'order date'      => 'order_date',
@@ -73,6 +85,7 @@ class OrderController extends Controller
         'cust address'    => 'cust_address',
         'cust_address'    => 'cust_address',
         'customer address'=> 'cust_address',
+        'alamat_pelanggan'=> 'cust_address',
         'alamat customer' => 'cust_address',
         'alamat'          => 'cust_address',
         'address'         => 'cust_address',
@@ -93,6 +106,7 @@ class OrderController extends Controller
         'package name'    => 'package',
         'layanan'         => 'package',
         'product'         => 'package',
+        'product_label'   => 'package',
         'produk'          => 'package',
 
         // jenis_layanan
@@ -180,10 +194,16 @@ class OrderController extends Controller
         }
 
         $imported = 0;
+        $createdOrders = 0;
+        $updatedOrders = 0;
         $skipped  = 0;
         $filtered = 0;
-        DB::transaction(function () use ($rows, $fieldIndex, $datelFilter, $datelColumn, &$imported, &$skipped, &$filtered): void {
+        $identifiedCustomers = 0;
+        $newCustomers = 0;
+        $totalRevenue = 0.0;
+        DB::transaction(function () use ($rows, $headerRow, $fieldIndex, $datelFilter, $datelColumn, $file, &$imported, &$createdOrders, &$updatedOrders, &$skipped, &$filtered, &$identifiedCustomers, &$newCustomers, &$totalRevenue): void {
             $batch = [];
+            $seenCustomerIds = [];
 
             foreach ($rows as $row) {
                 // Skip baris kosong
@@ -203,9 +223,26 @@ class OrderController extends Controller
                 }
 
                 $record = [];
+                $preferredCustomerAddress = null;
                 foreach ($fieldIndex as $colLetter => $dbField) {
                     $raw = $row[$colLetter] ?? null;
-                    $record[$dbField] = $this->castValue($dbField, $raw);
+                    $value = $this->castValue($dbField, $raw);
+                    $record[$dbField] = $value;
+
+                    if (
+                        $dbField === 'cust_address'
+                        && strtolower(trim((string) ($headerRow[$colLetter] ?? ''))) === 'alamat_pelanggan'
+                        && $this->hasValue($value)
+                    ) {
+                        $preferredCustomerAddress = $value;
+                    }
+                }
+                if ($preferredCustomerAddress !== null) {
+                    $record['cust_address'] = $preferredCustomerAddress;
+                }
+
+                if (!$this->hasValue($record['order_id'] ?? null) && $this->hasValue($record['customer_id'] ?? null)) {
+                    $record['order_id'] = $record['customer_id'];
                 }
 
                 if ($this->hasValue($record['channel_1'] ?? null)) {
@@ -217,6 +254,18 @@ class OrderController extends Controller
                     continue;
                 }
 
+                $customerId = trim((string) ($record['customer_id'] ?? ''));
+                if ($customerId !== '' && !isset($seenCustomerIds[$customerId])) {
+                    $seenCustomerIds[$customerId] = true;
+                    if (!Order::query()->where(function ($query) use ($customerId) {
+                        $query->where('customer_id', $customerId)
+                            ->orWhere('order_id', $customerId);
+                    })->exists()) {
+                        $newCustomers++;
+                    }
+                }
+
+                $totalRevenue += (float) ($record['amount'] ?? 0);
                 $now = now()->toDateTimeString();
                 $record['created_at'] = $now;
                 $record['updated_at'] = $now;
@@ -226,22 +275,40 @@ class OrderController extends Controller
 
                 // Batch insert setiap 500 baris
                 if (count($batch) >= 500) {
-                    $this->persistImportBatch($batch);
+                    $counts = $this->persistImportBatch($batch);
+                    $createdOrders += $counts['created'];
+                    $updatedOrders += $counts['updated'];
                     $batch = [];
                 }
             }
 
             if (!empty($batch)) {
-                $this->persistImportBatch($batch);
+                $counts = $this->persistImportBatch($batch);
+                $createdOrders += $counts['created'];
+                $updatedOrders += $counts['updated'];
             }
+
+            $identifiedCustomers = count($seenCustomerIds);
+            UploadReport::create([
+                'file_name' => $file->getClientOriginalName(),
+                'imported_orders' => $imported,
+                'identified_customers' => $identifiedCustomers,
+                'new_customers' => $newCustomers,
+                'total_revenue' => $totalRevenue,
+            ]);
         });
 
         return response()->json([
             'success'  => true,
             'message'  => "Berhasil mengimport {$imported} data order.",
             'imported' => $imported,
+            'created' => $createdOrders,
+            'updated' => $updatedOrders,
             'skipped'  => $skipped,
             'filtered' => $filtered,
+            'identified_customers' => $identifiedCustomers,
+            'new_customers' => $newCustomers,
+            'total_revenue' => $totalRevenue,
             'columns'  => array_values($fieldIndex),
         ]);
     }
@@ -258,6 +325,7 @@ class OrderController extends Controller
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('order_id',   'like', "%{$search}%")
+                  ->orWhere('customer_id', 'like', "%{$search}%")
                   ->orWhere('cust_name','like', "%{$search}%")
                   ->orWhere('package',  'like', "%{$search}%")
                   ->orWhere('jenis_layanan', 'like', "%{$search}%")
@@ -283,6 +351,9 @@ class OrderController extends Controller
         }
         if ($endDate = $request->query('end_date')) {
             $query->whereDate('order_date', '<=', $endDate);
+        }
+        if ($paymentStatus = $request->query('payment_status')) {
+            $query->where('payment_status', $paymentStatus);
         }
 
         // Pagination
@@ -321,6 +392,30 @@ class OrderController extends Controller
         }
 
         $total   = $query->count();
+        $allTotalOrders = Order::query()->count();
+        $allPayableOrders = Order::query()
+            ->whereNotNull('payment_status')
+            ->whereRaw('LOWER(TRIM(payment_status)) = ?', ['payable'])
+            ->count();
+        $totalRevenue = (clone $query)->sum('amount');
+        $amountOrders = (clone $query)->whereNotNull('amount')->count();
+        $paymentStatusOrders = (clone $query)->whereNotNull('payment_status')->count();
+        $paidOrders = (clone $query)
+            ->whereNotNull('payment_status')
+            ->whereRaw('LOWER(TRIM(payment_status)) = ?', ['payable'])
+            ->count();
+        $unpaidOrders = (clone $query)
+            ->whereNotNull('payment_status')
+            ->whereIn(DB::raw('LOWER(TRIM(payment_status))'), [
+                'nonpayable',
+                'non payable',
+                'belum bayar',
+            ])
+            ->count();
+        $totalCustomers = (clone $query)
+            ->selectRaw("COUNT(DISTINCT NULLIF(customer_id, '')) as aggregate")
+            ->value('aggregate');
+        $identifiedCustomerOrders = (clone $query)->whereNotNull('customer_id')->where('customer_id', '!=', '')->count();
         $byStatus = (clone $query)
             ->selectRaw('status, COUNT(*) as count')
             ->groupBy('status')
@@ -377,6 +472,15 @@ class OrderController extends Controller
         return response()->json([
             'success'           => true,
             'total_orders'      => $total,
+            'all_total_orders'  => $allTotalOrders,
+            'all_payable_orders' => $allPayableOrders,
+            'total_revenue'     => (float) $totalRevenue,
+            'amount_orders'     => $amountOrders,
+            'payment_status_orders' => $paymentStatusOrders,
+            'paid_orders'       => $paidOrders,
+            'unpaid_orders'     => $unpaidOrders,
+            'total_customers'   => (int) $totalCustomers,
+            'identified_customer_orders' => $identifiedCustomerOrders,
             'by_status'         => $byStatus,
             'by_city'           => $byCity,
             'by_package'        => $byPackage,
@@ -395,6 +499,7 @@ class OrderController extends Controller
     public function meta(): JsonResponse
     {
         $statuses  = Order::distinct()->pluck('status')->filter()->values();
+        $paymentStatuses = Order::query()->whereNotNull('payment_status')->distinct()->orderBy('payment_status')->pluck('payment_status')->filter()->values();
         $cities    = Order::distinct()->orderBy('city_name')->pluck('city_name')->filter()->values();
         $packages  = Order::query()
             ->selectRaw("DISTINCT COALESCE(NULLIF(package, ''), NULLIF(speed_package, '')) as package")
@@ -421,11 +526,30 @@ class OrderController extends Controller
             'total_orders' => Order::count(),
             'min_order_date' => $minOrderDate,
             'statuses' => $statuses,
+            'payment_statuses' => $paymentStatuses,
             'cities'   => $cities,
             'packages' => $packages,
             'service_types' => $serviceTypes,
             'stos'     => $stos,
             'datels'   => $datels,
+        ]);
+    }
+
+    public function reportSummary(): JsonResponse
+    {
+        $latest = UploadReport::query()->latest('id')->first();
+        $previous = UploadReport::query()->latest('id')->skip(1)->first();
+
+        $growth = null;
+        if ($latest && $previous && (float) $previous->total_revenue !== 0.0) {
+            $growth = (((float) $latest->total_revenue - (float) $previous->total_revenue) / (float) $previous->total_revenue) * 100;
+        }
+
+        return response()->json([
+            'success' => true,
+            'latest' => $latest,
+            'previous' => $previous,
+            'growth_percent' => $growth,
         ]);
     }
 
@@ -435,7 +559,10 @@ class OrderController extends Controller
     // ──────────────────────────────────────────────────────────────
     public function clear(): JsonResponse
     {
-        Order::truncate();
+        DB::transaction(function (): void {
+            Order::truncate();
+            UploadReport::truncate();
+        });
         return response()->json(['success' => true, 'message' => 'Semua data order telah dihapus.']);
     }
 
@@ -459,7 +586,7 @@ class OrderController extends Controller
         return $index;
     }
 
-    private function persistImportBatch(array $batch): void
+    private function persistImportBatch(array $batch): array
     {
         $orderIds = array_values(array_unique(array_column($batch, 'order_id')));
         $existingByOrderId = Order::query()
@@ -516,13 +643,18 @@ class OrderController extends Controller
             Order::upsert(
                 array_values($updatesById),
                 ['id'],
-                ['order_id', 'sto', 'datel', 'type_transaksi', 'channel_1', 'status', 'order_date', 'cust_name', 'cust_address', 'city_name', 'package', 'jenis_layanan', 'speed_package', 'updated_at']
+                ['order_id', 'customer_id', 'sto', 'datel', 'type_transaksi', 'channel_1', 'status', 'payment_status', 'amount', 'order_date', 'cust_name', 'cust_address', 'city_name', 'package', 'jenis_layanan', 'speed_package', 'updated_at']
             );
         }
 
         if ($newByOrderId !== []) {
             Order::insert(array_values($newByOrderId));
         }
+
+        return [
+            'created' => count($newByOrderId),
+            'updated' => count($updatesById),
+        ];
     }
 
     private function matchesDatel(string $datel, string $filter): bool
@@ -545,6 +677,10 @@ class OrderController extends Controller
     {
         if ($raw === null || $raw === '') return null;
 
+        if ($field === 'amount') {
+            return $this->parseAmount($raw);
+        }
+
         if ($field === 'order_date') {
             // PhpSpreadsheet bisa mengembalikan float (Excel date serial) atau string
             if (is_numeric($raw)) {
@@ -563,5 +699,37 @@ class OrderController extends Controller
         }
 
         return trim((string) $raw);
+    }
+
+    private function parseAmount(mixed $raw): ?float
+    {
+        if (is_numeric($raw)) {
+            return round((float) $raw, 2);
+        }
+
+        $value = preg_replace('/[^\d,.\-]/u', '', trim((string) $raw));
+        if ($value === null || $value === '' || !preg_match('/\d/', $value)) {
+            return null;
+        }
+
+        $comma = strrpos($value, ',');
+        $dot = strrpos($value, '.');
+        if ($comma !== false && $dot !== false) {
+            $decimalSeparator = $comma > $dot ? ',' : '.';
+            $thousandsSeparator = $decimalSeparator === ',' ? '.' : ',';
+            $value = str_replace($thousandsSeparator, '', $value);
+            $value = str_replace($decimalSeparator, '.', $value);
+        } elseif ($comma !== false || $dot !== false) {
+            $separator = $comma !== false ? ',' : '.';
+            $lastSeparator = strrpos($value, $separator);
+            $decimalDigits = strlen($value) - $lastSeparator - 1;
+            if ($decimalDigits === 1 || $decimalDigits === 2) {
+                $value = str_replace($separator, '.', $value);
+            } else {
+                $value = str_replace($separator, '', $value);
+            }
+        }
+
+        return is_numeric($value) ? round((float) $value, 2) : null;
     }
 }

@@ -11,9 +11,10 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <div className="relative min-h-screen bg-[#f5f5f5] text-[#171717] antialiased">
+    <div className="relative h-dvh overflow-hidden bg-[#f5f5f5] text-[#171717] antialiased">
       {/* Decorative Waves Background - Rendered once behind all content */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden opacity-[0.11]">
         <Waves
@@ -31,17 +32,24 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         />
       </div>
 
-      <div className="relative z-10 flex min-h-screen">
+      <div className="relative z-10 flex h-full min-h-0">
         {/* Sidebar */}
         <Sidebar
           mobileOpen={mobileMenuOpen}
           onCloseMobile={() => setMobileMenuOpen(false)}
+          collapsed={sidebarCollapsed}
         />
 
         {/* Main Content Area */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Header onToggleMobileMenu={() => setMobileMenuOpen(true)} />
-          <main className="flex-1 p-4 md:p-6 lg:p-8">{children}</main>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <Header
+            onToggleMobileMenu={() => setMobileMenuOpen(true)}
+            onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            sidebarCollapsed={sidebarCollapsed}
+          />
+          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4 md:p-6 xl:p-8">
+            {children}
+          </main>
         </div>
       </div>
     </div>

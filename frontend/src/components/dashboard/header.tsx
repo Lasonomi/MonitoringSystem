@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   Bell,
   ChevronDown,
   Menu,
-  Search,
+  PanelLeftClose,
   User,
   Settings,
   LogOut,
@@ -34,10 +35,6 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
     title: "Data Pelanggan",
     subtitle: "Manajemen data pelanggan terdaftar, status instalasi, dan paket",
   },
-  "/instansi": {
-    title: "Data Instansi & Lembaga",
-    subtitle: "Monitoring kemitraan instansi pemerintah, pendidikan, faskes, dan BUMD",
-  },
   "/seller": {
     title: "Performa Seller",
     subtitle: "Peringkat, pencapaian target, dan evaluasi tim marketing lapangan",
@@ -54,15 +51,22 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
 
 interface HeaderProps {
   onToggleMobileMenu?: () => void;
+  onToggleSidebar?: () => void;
+  sidebarCollapsed?: boolean;
   title?: string;
   subtitle?: string;
 }
 
-export function Header({ onToggleMobileMenu, title, subtitle }: HeaderProps) {
+export function Header({
+  onToggleMobileMenu,
+  onToggleSidebar,
+  sidebarCollapsed = false,
+  title,
+  subtitle,
+}: HeaderProps) {
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [activities, setActivities] = useState<ActivityEntry[]>(() => getActivities());
 
   const profileRef = useRef<HTMLDivElement>(null);
@@ -95,45 +99,57 @@ export function Header({ onToggleMobileMenu, title, subtitle }: HeaderProps) {
   const displaySubtitle = subtitle || currentInfo.subtitle;
 
   return (
-    <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-[#e5e5e5] bg-white/85 px-4 md:px-6 lg:px-8 backdrop-blur-md">
+    <header className="dashboard-header sticky top-0 z-30 flex min-h-16 items-center justify-between border-b border-[#e5e5e5] bg-white/85 px-3 sm:min-h-20 sm:px-4 md:px-6 xl:px-8 backdrop-blur-md">
       {/* Left: Mobile Toggle & Page Title */}
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         {onToggleMobileMenu && (
           <Button
             variant="ghost"
             size="icon"
             onClick={onToggleMobileMenu}
-            className="md:hidden text-[#171717] hover:bg-[#f3f3f3] rounded-xl"
+            className="shrink-0 rounded-xl text-[#171717] hover:bg-[#f3f3f3] md:hidden"
             aria-label="Buka navigasi menu"
           >
             <Menu className="h-5 w-5" />
           </Button>
         )}
 
-        <div>
-          <h2 className="text-lg font-bold tracking-tight text-[#171717] md:text-xl">
+        {onToggleSidebar && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleSidebar}
+            className="hidden shrink-0 rounded-xl text-[#171717] hover:bg-[#f3f3f3] md:inline-flex"
+            aria-label={sidebarCollapsed ? "Buka sidebar" : "Ciutkan sidebar"}
+            aria-expanded={!sidebarCollapsed}
+            title={sidebarCollapsed ? "Buka sidebar" : "Ciutkan sidebar"}
+          >
+            {sidebarCollapsed ? (
+              <Image
+                src="/logoIndibiz.png"
+                alt="IndiBiz"
+                width={32}
+                height={32}
+                className="h-8 w-8 rounded-md object-contain"
+              />
+            ) : (
+              <PanelLeftClose className="h-5 w-5" />
+            )}
+          </Button>
+        )}
+
+        <div className="min-w-0">
+          <h2 className="truncate text-base font-bold tracking-tight text-[#171717] sm:text-lg md:text-xl">
             {displayTitle}
           </h2>
-          <p className="hidden text-xs text-[#5c5c5c] sm:block">
+          <p className="hidden truncate text-xs text-[#5c5c5c] sm:block">
             {displaySubtitle}
           </p>
         </div>
       </div>
 
-      {/* Right: Search, Notification, Profile */}
+      {/* Right: Notification, Profile */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Search Input */}
-        <div className="relative hidden w-56 lg:w-64 items-center md:flex">
-          <Search className="absolute left-3 h-4 w-4 text-[#5c5c5c]" />
-          <input
-            type="text"
-            placeholder="Cari data, instansi, seller..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-10 w-full rounded-xl border border-[#e5e5e5] bg-[#f5f5f5]/60 pl-9 pr-3 text-xs text-[#171717] placeholder:text-[#5c5c5c] outline-none transition focus:border-[#171717] focus:bg-white"
-          />
-        </div>
-
         {/* Notification Dropdown */}
         <div className="relative" ref={notifRef}>
           <Button

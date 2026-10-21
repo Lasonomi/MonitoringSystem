@@ -27,6 +27,9 @@ Route::prefix('orders')->group(function () {
     // Metadata: nilai unik status, kota, paket, dll.
     Route::get('/meta', [OrderController::class, 'meta']);
 
+    // Ringkasan dan perbandingan laporan upload.
+    Route::get('/reports/summary', [OrderController::class, 'reportSummary']);
+
     // Hapus semua data
     Route::delete('/clear', [OrderController::class, 'clear']);
 });

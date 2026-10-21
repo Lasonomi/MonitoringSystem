@@ -12,9 +12,9 @@ import {
   FileSpreadsheet,
   Trash2,
   RefreshCw,
-  ShoppingCart,
-  MapPin,
-  Package,
+  CircleDollarSign,
+  CreditCard,
+  Users,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,11 +26,14 @@ import {
   fetchOrders,
   fetchStats,
   fetchMeta,
+  fetchUploadReportSummary,
   clearOrders,
   type StatsResponse,
   type MetaResponse,
+  type UploadReportSummary,
 } from "@/lib/api";
 import { exportToExcel } from "@/lib/excel";
+import { formatShortRupiah } from "@/lib/dummy-data";
 
 // ─── Upload status ─────────────────────────────────────────────────────────────
 type UploadStatus = "idle" | "uploading" | "success" | "error";
@@ -45,6 +48,8 @@ export default function LaporanPage() {
   const [datelFilter, setDatelFilter] = useState("Lumajang");
   const [uploadResult, setUploadResult] = useState<{
     imported: number;
+    created: number;
+    updated: number;
     skipped: number;
     filtered: number;
     columns: string[];
@@ -54,6 +59,7 @@ export default function LaporanPage() {
   // Data state
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [meta, setMeta] = useState<MetaResponse | null>(null);
+  const [reportSummary, setReportSummary] = useState<UploadReportSummary | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
 
@@ -61,9 +67,14 @@ export default function LaporanPage() {
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
     try {
-      const [s, m] = await Promise.all([fetchStats(), fetchMeta()]);
+      const [s, m, report] = await Promise.all([
+        fetchStats(),
+        fetchMeta(),
+        fetchUploadReportSummary(),
+      ]);
       setStats(s);
       setMeta(m);
+      setReportSummary(report);
     } catch (e) {
       console.error("Failed to load stats:", e);
     } finally {
@@ -95,6 +106,8 @@ export default function LaporanPage() {
       if (res.success) {
         setUploadResult({
           imported: res.imported ?? 0,
+          created: res.created ?? 0,
+          updated: res.updated ?? 0,
           skipped: res.skipped ?? 0,
           filtered: res.filtered ?? 0,
           columns: res.columns ?? [],
@@ -192,22 +205,42 @@ export default function LaporanPage() {
   const renderUploadArea = () => {
     // SUCCESS
     if (uploadStatus === "success" && uploadResult) {
+      const hasImportedData = uploadResult.imported > 0;
+
       return (
-        <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-5">
+        <div className={`rounded-2xl border-2 p-5 ${
+          hasImportedData
+            ? "border-emerald-200 bg-emerald-50"
+            : "border-amber-200 bg-amber-50"
+        }`}>
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-4 flex-1 min-w-0">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
-                <CheckCircle2 className="h-6 w-6" />
+              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${
+                hasImportedData
+                  ? "bg-emerald-100 text-emerald-600"
+                  : "bg-amber-100 text-amber-600"
+              }`}>
+                {hasImportedData
+                  ? <CheckCircle2 className="h-6 w-6" />
+                  : <AlertCircle className="h-6 w-6" />}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-emerald-800">
-                  Upload Berhasil!
+                <p className={`text-sm font-bold ${
+                  hasImportedData ? "text-emerald-800" : "text-amber-800"
+                }`}>
+                  {hasImportedData ? "Upload Berhasil!" : "File terbaca, tetapi tidak ada data yang diimpor"}
                 </p>
-                <p className="mt-0.5 text-xs text-emerald-700 truncate">
+                <p className={`mt-0.5 truncate text-xs ${
+                  hasImportedData ? "text-emerald-700" : "text-amber-700"
+                }`}>
                   {uploadFileName}
                 </p>
-                <p className="mt-1 text-[11px] text-emerald-700">
-                  <span className="font-bold">{uploadResult.imported.toLocaleString("id-ID")}</span> data diimport
+                <p className={`mt-1 text-[11px] ${
+                  hasImportedData ? "text-emerald-700" : "text-amber-700"
+                }`}>
+                  <span className="font-bold">{uploadResult.imported.toLocaleString("id-ID")}</span> baris diproses
+                  <span className="ml-2">· {(uploadResult.created ?? 0).toLocaleString("id-ID")} order baru</span>
+                  <span className="ml-2">· {(uploadResult.updated ?? 0).toLocaleString("id-ID")} order diperbarui</span>
                   {uploadResult.skipped > 0 && (
                     <span className="ml-2 text-amber-600">· {uploadResult.skipped} baris dilewati</span>
                   )}
@@ -215,13 +248,29 @@ export default function LaporanPage() {
                     <span className="ml-2 text-amber-600">· {uploadResult.filtered} baris bukan {datelFilter}</span>
                   )}
                 </p>
+                {!hasImportedData && (
+                  <p className="mt-1 text-[11px] text-amber-700">
+                    {datelFilter
+                      ? `Pastikan DATEL cocok dengan filter ${datelFilter}, atau pilih “Semua wilayah”. Baris juga perlu memiliki ORDER ID atau CUSTOMER ID.`
+                      : "Pastikan setiap baris memiliki ORDER ID atau CUSTOMER ID agar bisa diimpor."}
+                  </p>
+                )}
+                {(uploadResult.created ?? 0) === 0 && (uploadResult.updated ?? 0) > 0 && (
+                  <p className="mt-1 text-[11px] text-amber-700">
+                    Total order tidak bertambah karena semua ID pada baris yang diimpor sudah ada; data lama diperbarui.
+                  </p>
+                )}
 
                 {uploadResult.columns.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {uploadResult.columns.slice(0, 10).map((col, i) => (
                       <span
                         key={i}
-                        className="rounded-md border border-emerald-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+                        className={`rounded-md border bg-white px-1.5 py-0.5 text-[10px] font-medium ${
+                          hasImportedData
+                            ? "border-emerald-200 text-emerald-700"
+                            : "border-amber-200 text-amber-700"
+                        }`}
                       >
                         {col}
                       </span>
@@ -234,7 +283,11 @@ export default function LaporanPage() {
             <div className="flex shrink-0 flex-col items-end gap-2">
               <button
                 onClick={handleReset}
-                className="flex items-center gap-1 text-[11px] text-emerald-700 hover:text-emerald-900 transition-colors"
+                className={`flex items-center gap-1 text-[11px] transition-colors ${
+                  hasImportedData
+                    ? "text-emerald-700 hover:text-emerald-900"
+                    : "text-amber-700 hover:text-amber-900"
+                }`}
               >
                 <Upload className="h-3.5 w-3.5" />
                 Upload Lagi
@@ -314,7 +367,9 @@ export default function LaporanPage() {
           </select>
         </div>
         <p className="text-[11px] text-[#5c5c5c]">
-          Baris dari wilayah lain tidak akan diimpor. Data yang sudah ada tetap tersimpan.
+          {datelFilter
+            ? `Hanya baris DATEL ${datelFilter} yang diimpor. Data yang sudah ada tetap tersimpan.`
+            : "Semua wilayah akan diimpor. Data yang sudah ada tetap tersimpan."}
         </p>
         <div
           onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
@@ -355,7 +410,7 @@ export default function LaporanPage() {
                 Kolom yang diharapkan:
               </p>
               <div className="flex flex-wrap gap-1">
-                {["ORDER ID", "STO", "DATEL", "TYPE TRANSAKSI / CHANNEL 1", "STATUS / STATUS RESUME", "ORDER DATE / TGL PS", "CUST NAME / NAMA", "CUST ADDRESS", "CITY NAME", "PACKAGE NAME", "SPEED PAKET"].map((col) => (
+                {["ORDER ID", "CUSTOMER ID / ACCOUNT_NUM", "STO / CSTO", "DATEL", "TYPE TRANSAKSI / EVENT_SOURCE_TXT / CHANNEL 1", "STATUS / TREND", "TAGIHAN", "ORDER DATE / TGL PS", "CUST NAME / NAMA", "CUST ADDRESS / ALAMAT_PELANGGAN / ALAMAT", "CITY NAME / KOTA", "PACKAGE / PRODUCT_LABEL / LAYANAN", "SPEED PAKET"].map((col) => (
                   <span
                     key={col}
                     className="rounded-md border border-[#e5e5e5] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#171717]"
@@ -381,8 +436,6 @@ export default function LaporanPage() {
 
   // ─── Stats summary cards ─────────────────────────────────────────────────────
   const totalOrders = stats?.total_orders ?? 0;
-  const topCity = stats?.by_city?.[0];
-  const topServiceType = stats?.by_service_type?.[0];
 
   return (
     <DashboardLayout>
@@ -428,52 +481,113 @@ export default function LaporanPage() {
           </div>
         </div>
 
-        {/* Database Status Cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="flex items-center gap-4 rounded-2xl border border-[#e5e5e5] bg-white p-4 shadow-sm">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#171717]">
-              <ShoppingCart className="h-5 w-5 text-white" />
+        {/* Report summary cards */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="rounded-2xl border border-[#e5e5e5] bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#171717]">
+                <CircleDollarSign className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[#171717]">Laporan Penjualan</p>
+                <p className="text-xs text-[#5c5c5c]">Ringkasan performa penjualan</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[11px] font-medium text-[#5c5c5c]">Total Order</p>
-              {statsLoading ? (
-                <Skeleton className="mt-2 h-6 w-24" />
-              ) : (
-                <p className="text-xl font-bold text-[#171717]">{totalOrders.toLocaleString("id-ID")}</p>
-              )}
-            </div>
+            {statsLoading ? (
+              <Skeleton className="mt-4 h-7 w-32" />
+            ) : (
+              <>
+                <p className="mt-4 text-2xl font-bold text-[#171717]">
+                  {stats?.amount_orders
+                    ? formatShortRupiah(stats.total_revenue)
+                    : "N/A"}
+                </p>
+                <p className="mt-1 text-xs text-[#5c5c5c]">
+                  {!stats?.amount_orders
+                    ? "Unggah ulang data dengan kolom TAGIHAN untuk menghitung revenue"
+                    : reportSummary?.growth_percent == null
+                    ? "Belum ada laporan sebelumnya untuk dibandingkan"
+                    : `${reportSummary.growth_percent > 0 ? "+" : ""}${reportSummary.growth_percent.toFixed(1)}% dari laporan sebelumnya`}
+                </p>
+                <p className="mt-1 text-[11px] text-[#737373]">
+                  {totalOrders.toLocaleString("id-ID")} order tersimpan
+                </p>
+              </>
+            )}
           </div>
 
-          <div className="flex items-center gap-4 rounded-2xl border border-[#e5e5e5] bg-white p-4 shadow-sm">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50">
-              <MapPin className="h-5 w-5 text-blue-600" />
+          <div className="rounded-2xl border border-[#e5e5e5] bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50">
+                <CreditCard className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[#171717]">Laporan Pembayaran</p>
+                <p className="text-xs text-[#5c5c5c]">Status pembayaran dari data order</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[11px] font-medium text-[#5c5c5c]">Top Kota</p>
-              {statsLoading ? (
-                <Skeleton className="mt-2 h-4 w-28" />
-              ) : (
-                <p className="max-w-[150px] truncate text-sm font-bold text-[#171717]">
-                  {topCity ? `${topCity.city_name} (${topCity.count})` : "-"}
-                </p>
-              )}
-            </div>
+            {statsLoading ? (
+              <Skeleton className="mt-4 h-7 w-32" />
+            ) : (
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                {stats && stats.paid_orders + stats.unpaid_orders > 0 ? (
+                  <>
+                    <div>
+                      <p className="text-[11px] text-[#5c5c5c]">Sudah Bayar</p>
+                      <p className="text-xl font-bold text-emerald-700">
+                        {stats.paid_orders.toLocaleString("id-ID")}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-[#5c5c5c]">Belum Bayar</p>
+                      <p className="text-xl font-bold text-amber-700">
+                        {stats.unpaid_orders.toLocaleString("id-ID")}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <p className="col-span-2 text-sm text-[#737373]">
+                    Status pembayaran belum tersedia di data.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-4 rounded-2xl border border-[#e5e5e5] bg-white p-4 shadow-sm">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50">
-              <Package className="h-5 w-5 text-emerald-600" />
+          <div className="rounded-2xl border border-[#e5e5e5] bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50">
+                <Users className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[#171717]">Laporan Pelanggan</p>
+                <p className="text-xs text-[#5c5c5c]">Memudahkan pemeriksaan data</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[11px] font-medium text-[#5c5c5c]">Top Jenis Layanan</p>
-              {statsLoading ? (
-                <Skeleton className="mt-2 h-4 w-32" />
-              ) : (
-                <p className="max-w-[150px] truncate text-sm font-bold text-[#171717]">
-                  {topServiceType ? `${topServiceType.jenis_layanan} (${topServiceType.count})` : "-"}
+            {statsLoading ? (
+              <Skeleton className="mt-4 h-7 w-32" />
+            ) : (
+              <>
+                <p className="mt-4 text-2xl font-bold text-[#171717]">
+                  {stats?.identified_customer_orders
+                    ? stats.total_customers.toLocaleString("id-ID")
+                    : "N/A"}
                 </p>
-              )}
-            </div>
+                <p className="text-xs text-[#5c5c5c]">
+                  {stats?.identified_customer_orders
+                    ? "pelanggan dengan CUSTOMER ID"
+                    : "data CUSTOMER ID belum tersedia"}
+                </p>
+                <p className="mt-1 text-[11px] text-emerald-700">
+                  {reportSummary?.latest?.identified_customers
+                    ? `+${reportSummary.latest.new_customers.toLocaleString("id-ID")} pelanggan baru pada upload terakhir`
+                    : "Belum ada riwayat upload untuk menghitung pelanggan baru"}
+                </p>
+                <p className="mt-1 text-[11px] text-[#737373]">
+                  Unggah kolom CUSTOMER ID agar hitungan pelanggan unik akurat.
+                </p>
+              </>
+            )}
           </div>
         </div>
 
@@ -486,7 +600,7 @@ export default function LaporanPage() {
             <div>
               <h2 className="text-sm font-bold text-[#171717]">Upload File Excel</h2>
               <p className="text-[11px] text-[#5c5c5c]">
-                Data lama akan ditimpa dengan data baru dari file yang diupload
+                Order dengan ORDER ID yang sama akan diperbarui; order baru akan ditambahkan.
               </p>
             </div>
           </div>
@@ -603,7 +717,7 @@ export default function LaporanPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-xs text-[#5c5c5c]">
-              Baris pertama harus berisi nama kolom. Sistem menerima berbagai variasi nama kolom (case-insensitive).
+              Baris pertama harus berisi nama kolom. Sistem menerima berbagai variasi nama kolom (case-insensitive). Untuk KPI pembayaran dan pelanggan baru, unggah juga kolom TAGIHAN, STATUS, dan CUSTOMER ID.
             </p>
             <div className="overflow-x-auto rounded-xl border border-[#e5e5e5]">
               <table className="w-full text-left text-xs">
@@ -616,11 +730,14 @@ export default function LaporanPage() {
                 </thead>
                 <tbody className="divide-y divide-[#f0f0f0]">
                   {[
-                    { col: "ORDER ID", alt: "Order_ID, ID Order, No Order", type: "Teks" },
+                    { col: "ORDER ID", alt: "Order_ID, ID Order, No Order (kunci sinkronisasi order)", type: "Teks" },
+                    { col: "CUSTOMER ID", alt: "Customer_ID, CustomerID, ID Pelanggan, Cust ID", type: "Teks" },
                     { col: "STO", alt: "STO", type: "Teks" },
                     { col: "DATEL", alt: "DATEL", type: "Teks" },
                     { col: "TYPE TRANSAKSI", alt: "Channel 1, Type_Transaksi, Jenis Transaksi", type: "Teks" },
-                    { col: "STATUS", alt: "Status Resume, Status", type: "Teks" },
+                    { col: "STATUS", alt: "Status pembayaran: Sudah Bayar/Lunas atau PAYABLE/Belum Bayar", type: "Teks" },
+                    { col: "TAGIHAN", alt: "Nominal Tagihan, Amount (angka atau format rupiah)", type: "Nominal" },
+                    { col: "STATUS RESUME", alt: "Status proses order, jika tersedia terpisah", type: "Teks" },
                     { col: "ORDER DATE", alt: "TGL PS, Order_Date, Tanggal Order", type: "Tanggal" },
                     { col: "CUST NAME", alt: "Nama, Cust_Name, Customer Name, Nama Pelanggan", type: "Teks" },
                     { col: "CUST ADDRESS", alt: "Install Address, Cust_Address, Customer Address, Alamat", type: "Teks" },

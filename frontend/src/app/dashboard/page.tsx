@@ -100,31 +100,17 @@ export default function DashboardPage() {
       };
     }
 
-    const total = stats.total_orders;
-    const byStatus = stats.by_status ?? {};
+    const filteredTotal = stats.total_orders;
+    const filteredPayable = stats.paid_orders;
+    const total = stats.all_total_orders;
+    const selesai = stats.all_payable_orders;
 
-    // Count "selesai/sukses"
-    const selesai = Object.entries(byStatus)
-      .filter(([k]) => {
-        const kl = k.toLowerCase();
-        return (
-          kl.includes("sukses") ||
-          kl.includes("selesai") ||
-          kl.includes("done") ||
-          kl.includes("complete") ||
-          kl.includes("success") ||
-          kl.includes("ok")
-        );
-      })
-      .reduce((s, [, v]) => s + v, 0);
+    // These two cards follow the selected dashboard date range.
+    const totalPelanggan = filteredTotal;
 
-    // Unique customers (approximation = total orders dari data)
-    const totalPelanggan = total;
+    const pelangganNunggak = Math.max(0, filteredTotal - filteredPayable);
 
-    // Orders yang belum selesai → "nunggak" approximation
-    const pelangganNunggak = total - selesai;
-
-    // C3MR: customer completion rate
+    // C3MR uses PAYABLE orders as completed orders.
     const c3mr = total > 0 ? (selesai / total) * 100 : 0;
 
     // Occupancy placeholder (tidak ada data jaringan di Excel ini)
@@ -306,7 +292,7 @@ export default function DashboardPage() {
               <StatCard
                 title="C3MR"
                 value={`${kpi.c3mr.toFixed(1)}%`}
-                description="completion rate"
+                description="PAYABLE ÷ seluruh order"
                 progress={kpi.c3mr}
                 icon={ChartNoAxesCombined}
               />

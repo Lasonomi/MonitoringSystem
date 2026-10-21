@@ -18,6 +18,9 @@ export interface OrderRecord {
   type_transaksi: string | null;
   channel_1: string | null;
   status: string | null;
+  payment_status: string | null;
+  customer_id: string | null;
+  amount: number | string | null;
   order_date: string | null;
   cust_name: string | null;
   cust_address: string | null;
@@ -45,6 +48,8 @@ export interface OrdersResponse {
 export interface StatsResponse {
   success: boolean;
   total_orders: number;
+  all_total_orders: number;
+  all_payable_orders: number;
   by_status: Record<string, number>;
   by_city: { city_name: string; count: number }[];
   by_package: { package: string; count: number }[];
@@ -53,6 +58,13 @@ export interface StatsResponse {
   by_type_transaksi: { type_transaksi: string; count: number }[];
   by_sto?: { sto: string; count: number }[];
   by_datel?: { datel: string; count: number }[];
+  total_revenue: number;
+  amount_orders: number;
+  payment_status_orders: number;
+  paid_orders: number;
+  unpaid_orders: number;
+  total_customers: number;
+  identified_customer_orders: number;
 }
 
 export interface MetaResponse {
@@ -61,6 +73,7 @@ export interface MetaResponse {
   total_orders: number;
   min_order_date: string | null;
   statuses: string[];
+  payment_statuses: string[];
   cities: string[];
   packages: string[];
   service_types: string[];
@@ -72,9 +85,30 @@ export interface UploadResponse {
   success: boolean;
   message: string;
   imported?: number;
+  created?: number;
+  updated?: number;
   skipped?: number;
   filtered?: number;
+  new_customers?: number;
+  total_revenue?: number;
   columns?: string[];
+}
+
+export interface UploadReportSnapshot {
+  id: number;
+  file_name: string;
+  imported_orders: number;
+  identified_customers: number;
+  new_customers: number;
+  total_revenue: number | string;
+  created_at: string;
+}
+
+export interface UploadReportSummary {
+  success: boolean;
+  latest: UploadReportSnapshot | null;
+  previous: UploadReportSnapshot | null;
+  growth_percent: number | null;
 }
 
 // ─── Query params helper ───────────────────────────────────────────────────────
@@ -83,6 +117,7 @@ type OrderParams = {
   search?: string;
   status?: string;
   city?: string;
+  payment_status?: string;
   start_date?: string;
   end_date?: string;
   per_page?: number;
@@ -173,6 +208,14 @@ export async function fetchMeta(): Promise<MetaResponse> {
   });
   if (!res.ok) throw new Error(`Gagal mengambil metadata (${res.status})`);
   return parseJsonResponse<MetaResponse>(res);
+}
+
+export async function fetchUploadReportSummary(): Promise<UploadReportSummary> {
+  const res = await fetch(`${BASE}/orders/reports/summary`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`Gagal mengambil ringkasan laporan (${res.status})`);
+  return parseJsonResponse<UploadReportSummary>(res);
 }
 
 /**

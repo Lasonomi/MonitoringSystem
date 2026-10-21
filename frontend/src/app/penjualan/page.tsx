@@ -5,6 +5,8 @@ import {
   TrendingUp,
   ShoppingCart,
   CheckCircle2,
+  CircleDollarSign,
+  UserPlus,
   Download,
   Search,
   Filter,
@@ -22,11 +24,14 @@ import {
   fetchOrders,
   fetchStats,
   fetchMeta,
+  fetchUploadReportSummary,
   type OrderRecord,
   type StatsResponse,
   type MetaResponse,
+  type UploadReportSummary,
 } from "@/lib/api";
 import { exportToExcel } from "@/lib/excel";
+import { formatShortRupiah } from "@/lib/dummy-data";
 import {
   AreaChart,
   Area,
@@ -67,6 +72,7 @@ export default function PenjualanPage() {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [chartStats, setChartStats] = useState<StatsResponse | null>(null);
   const [meta, setMeta] = useState<MetaResponse | null>(null);
+  const [reportSummary, setReportSummary] = useState<UploadReportSummary | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalOrders, setTotalOrders] = useState(0);
@@ -79,8 +85,11 @@ export default function PenjualanPage() {
 
   // ─── Fetch meta (status options, cities) ────────────────────────────────────
   useEffect(() => {
-    fetchMeta()
-      .then(setMeta)
+    Promise.all([fetchMeta(), fetchUploadReportSummary()])
+      .then(([nextMeta, summary]) => {
+        setMeta(nextMeta);
+        setReportSummary(summary);
+      })
       .catch(console.error);
   }, []);
 
@@ -180,22 +189,8 @@ export default function PenjualanPage() {
   // ─── KPI dari stats ───────────────────────────────────────────────────────────
   const kpi = useMemo(() => {
     if (!stats) return null;
-    const total = stats.total_orders;
-    const byStatus = stats.by_status ?? {};
-
-    // Hitung "selesai/sukses"
-    const selesai = Object.entries(byStatus)
-      .filter(([k]) => {
-        const kl = k.toLowerCase();
-        return (
-          kl.includes("sukses") ||
-          kl.includes("selesai") ||
-          kl.includes("done") ||
-          kl.includes("complete") ||
-          kl.includes("success")
-        );
-      })
-      .reduce((s, [, v]) => s + v, 0);
+    const total = stats.all_total_orders;
+    const selesai = stats.all_payable_orders;
 
     const conversionRate = total > 0 ? ((selesai / total) * 100).toFixed(1) : "0.0";
     const topServiceType = stats.by_service_type?.[0]?.jenis_layanan ?? "-";
@@ -274,10 +269,45 @@ export default function PenjualanPage() {
         {/* KPI Cards */}
         {statsLoading ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }, (_, index) => <KpiSkeleton key={index} />)}
+            {Array.from({ length: 7 }, (_, index) => <KpiSkeleton key={index} />)}
           </div>
         ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Total Revenue"
+            value={
+              stats?.amount_orders
+                ? formatShortRupiah(stats.total_revenue)
+                : "N/A"
+            }
+            description={
+              stats?.amount_orders
+                ? "total nominal tagihan pada periode"
+                : "data TAGIHAN belum tersedia"
+            }
+            icon={CircleDollarSign}
+          />
+          <StatCard
+            title="Pelanggan Baru"
+            value={
+              reportSummary?.latest?.identified_customers
+                ? reportSummary.latest.new_customers.toLocaleString("id-ID")
+                : "N/A"
+            }
+            description="Customer ID baru pada upload terakhir"
+            icon={UserPlus}
+          />
+          <StatCard
+            title="Pertumbuhan Penjualan"
+            value={
+              reportSummary?.growth_percent == null
+                ? "N/A"
+                : `${reportSummary.growth_percent > 0 ? "+" : ""}${reportSummary.growth_percent.toFixed(1)}%`
+            }
+            description="total TAGIHAN upload ini vs sebelumnya"
+            trendType={reportSummary?.growth_percent != null && reportSummary.growth_percent < 0 ? "down" : "up"}
+            icon={TrendingUp}
+          />
           <StatCard
             title="Total Order"
             value={statsLoading || !meta ? "..." : meta.total_orders.toLocaleString("id-ID")}
@@ -287,7 +317,7 @@ export default function PenjualanPage() {
           <StatCard
             title="Order Selesai"
             value={statsLoading ? "..." : (kpi?.selesai ?? 0).toLocaleString("id-ID")}
-            description="status selesai/sukses"
+            description="status PAYABLE"
             icon={CheckCircle2}
           />
           <StatCard
@@ -299,7 +329,7 @@ export default function PenjualanPage() {
           <StatCard
             title="Tingkat Konversi"
             value={statsLoading ? "..." : `${kpi?.conversionRate ?? "0"}%`}
-            description="order selesai / total"
+            description="PAYABLE ÷ seluruh order"
             progress={parseFloat(kpi?.conversionRate ?? "0")}
             icon={CheckCircle2}
           />
@@ -518,7 +548,7 @@ export default function PenjualanPage() {
                           {item.type_transaksi ?? "-"}
                         </td>
                         <td className="px-4 py-3.5 text-center">
-                          <StatusBadge status={item.status} />
+                          <StatusBadge status={item.payment_status ?? item.status} />
                         </td>
                         <td className="px-4 py-3.5 text-xs text-[#5c5c5c]">
                           {formatOrderDate(item.order_date)}
