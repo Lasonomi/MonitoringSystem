@@ -18,6 +18,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   getActivities,
+  getLastSeenActivityId,
+  markActivityAsSeen,
   subscribeToActivities,
   type ActivityEntry,
 } from "@/lib/activity-log";
@@ -67,7 +69,8 @@ export function Header({
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [activities, setActivities] = useState<ActivityEntry[]>(() => getActivities());
+  const [activities, setActivities] = useState<ActivityEntry[]>([]);
+  const [lastSeenActivityId, setLastSeenActivityId] = useState<string | null>(null);
 
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -87,8 +90,41 @@ export function Header({
   }, []);
 
   useEffect(() => {
-    return subscribeToActivities(() => setActivities(getActivities()));
-  }, []);
+    function refreshActivities() {
+      const latestActivities = getActivities();
+      const seenActivityId = getLastSeenActivityId();
+      if (
+        notifOpen &&
+        latestActivities[0] &&
+        latestActivities[0].id !== seenActivityId
+      ) {
+        markActivityAsSeen(latestActivities[0].id);
+      }
+      setActivities(latestActivities);
+      setLastSeenActivityId(getLastSeenActivityId());
+    }
+
+    refreshActivities();
+    return subscribeToActivities(refreshActivities);
+  }, [notifOpen]);
+
+  const lastSeenIndex = activities.findIndex(
+    (activity) => activity.id === lastSeenActivityId,
+  );
+  const unreadCount =
+    lastSeenIndex === -1 ? activities.length : lastSeenIndex;
+
+  function toggleNotifications() {
+    const opening = !notifOpen;
+    if (opening) {
+      const latestActivities = getActivities();
+      setActivities(latestActivities);
+      if (latestActivities[0]) {
+        markActivityAsSeen(latestActivities[0].id);
+      }
+    }
+    setNotifOpen(opening);
+  }
 
   const currentInfo = pageTitles[pathname || "/dashboard"] || {
     title: title || "Dashboard Admin",
@@ -155,19 +191,25 @@ export function Header({
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setNotifOpen(!notifOpen)}
+            onClick={toggleNotifications}
             className="relative rounded-xl hover:bg-[#f3f3f3] text-[#171717]"
-            aria-label="Lihat Notifikasi"
+            aria-label={
+              unreadCount > 0
+                ? `Lihat Notifikasi, ${unreadCount} belum dibaca`
+                : "Lihat Notifikasi"
+            }
           >
             <Bell className="h-4.5 w-4.5" />
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#d51100] ring-2 ring-white animate-pulse" />
+            {unreadCount > 0 && (
+              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#d51100] ring-2 ring-white animate-pulse" />
+            )}
           </Button>
 
           {notifOpen && (
             <div className="absolute right-0 mt-2 w-80 rounded-2xl border border-[#e5e5e5] bg-white p-3 shadow-xl z-50 animate-in fade-in slide-in-from-top-2">
               <div className="flex items-center justify-between border-b border-[#e5e5e5] pb-2 px-1">
                 <p className="font-bold text-xs text-[#171717]">Aktivitas Terbaru</p>
-                <span className="text-[10px] font-semibold text-[#d51100] bg-[#d51100]/10 px-1.5 py-0.5 rounded">
+                <span className="text-[10px] font-semibold text-[#5c5c5c] bg-[#f5f5f5] px-1.5 py-0.5 rounded">
                   {activities.length}
                 </span>
               </div>

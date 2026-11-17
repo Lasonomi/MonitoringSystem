@@ -52,6 +52,7 @@ export interface StatsResponse {
   all_payable_orders: number;
   by_status: Record<string, number>;
   by_city: { city_name: string; count: number }[];
+  by_region?: { region_name: string; region_source: "Kota" | "DATEL"; count: number }[];
   by_package: { package: string; count: number }[];
   by_service_type: { jenis_layanan: string; count: number }[];
   by_date: { date: string; count: number }[];

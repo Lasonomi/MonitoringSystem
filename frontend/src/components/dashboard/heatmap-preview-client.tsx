@@ -1,172 +1,243 @@
 "use client";
 
-import React, { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import { latLngBounds } from "leaflet";
 import {
   MapContainer,
   TileLayer,
   Circle,
-  Marker,
+  CircleMarker,
   Popup,
+  useMap,
 } from "react-leaflet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { heatmapPoints, wilayahData } from "@/lib/dummy-data";
-import { Flame, Layers, Radio } from "lucide-react";
+import { Flame, Layers, MapPin } from "lucide-react";
 
-// Red custom pin icon
-const pinIcon = new L.Icon({
-  iconUrl:
-    "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png",
-  shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
+export interface HeatmapRegion {
+  id: string;
+  name: string;
+  source: "Kota" | "DATEL";
+  count: number;
+}
 
-export function HeatmapPreviewClient() {
-  const center: [number, number] = useMemo(() => [-8.1332, 113.2245], []);
+type MappedHeatmapRegion = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  count: number;
+  sourceRegions: HeatmapRegion[];
+};
+
+type CityLocation = {
+  label: string;
+  coordinates: [number, number];
+};
+
+const cityLocations: Record<string, CityLocation> = {
+  "lumajang kota": { label: "Lumajang", coordinates: [-8.1332, 113.2245] },
+  lumajang: { label: "Lumajang", coordinates: [-8.1332, 113.2245] },
+  "balai selasa sumbar": { label: "Balai Selasa, Sumbar", coordinates: [-1.795466, 100.836668] },
+  bondowoso: { label: "Bondowoso", coordinates: [-7.9135, 113.8215] },
+  jember: { label: "Jember", coordinates: [-8.1845, 113.6681] },
+  jatiroto: { label: "Jatiroto", coordinates: [-8.1223326, 113.3638797] },
+  sukodono: { label: "Sukodono", coordinates: [-8.1065, 113.2381] },
+  klakah: { label: "Klakah", coordinates: [-7.9892, 113.2575] },
+  pasirian: { label: "Pasirian", coordinates: [-8.2163, 113.1092] },
+  situbondo: { label: "Situbondo", coordinates: [-7.706, 114.009] },
+  sibo: { label: "Situbondo", coordinates: [-7.706, 114.009] },
+  tempeh: { label: "Tempeh", coordinates: [-8.1925, 113.1812] },
+  senduro: { label: "Senduro", coordinates: [-8.1008, 113.1118] },
+  yosowilangun: { label: "Yosowilangun", coordinates: [-8.2435, 113.2872] },
+  rowokangkung: { label: "Rowokangkung", coordinates: [-8.1751, 113.2819] },
+};
+
+function normalizeName(name: string) {
+  return name.trim().toLocaleLowerCase("id-ID");
+}
+
+function FitMapToRegions({ regions }: { regions: MappedHeatmapRegion[] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (regions.length === 0) return;
+
+    const frame = requestAnimationFrame(() => {
+      if (!map.getContainer().isConnected) return;
+
+      const bounds = latLngBounds(
+        regions.map((region) => [region.lat, region.lng] as [number, number]),
+      );
+      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 12 });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [map, regions]);
+
+  return null;
+}
+
+export function HeatmapPreviewClient({ regions }: { regions: HeatmapRegion[] }) {
+  const { mappedRegions, unmappedRegions, unmappedOrders, maxOrders } = useMemo(() => {
+    const mappedByLocation = new Map<string, MappedHeatmapRegion>();
+    const unmapped: HeatmapRegion[] = [];
+
+    for (const region of regions) {
+      const location = cityLocations[normalizeName(region.name)];
+      if (!location) {
+        unmapped.push(region);
+        continue;
+      }
+
+      const [lat, lng] = location.coordinates;
+      const id = `${lat}:${lng}`;
+      const mapped = mappedByLocation.get(id);
+      if (mapped) {
+        mapped.count += region.count;
+        mapped.sourceRegions.push(region);
+      } else {
+        mappedByLocation.set(id, {
+          id,
+          name: location.label,
+          lat,
+          lng,
+          count: region.count,
+          sourceRegions: [region],
+        });
+      }
+    }
+
+    const mapped = [...mappedByLocation.values()];
+
+    return {
+      mappedRegions: mapped,
+      unmappedRegions: unmapped,
+      unmappedOrders: unmapped.reduce((total, region) => total + region.count, 0),
+      maxOrders: Math.max(1, ...mapped.map((region) => region.count)),
+    };
+  }, [regions]);
 
   return (
     <Card className="rounded-2xl border border-[#e5e5e5] bg-white shadow-[0_4px_20px_rgba(23,23,23,0.05)]">
-      <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4">
+      <CardHeader className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#d51100]/10 text-[#d51100]">
               <Flame className="h-4 w-4" />
             </div>
             <CardTitle className="text-base font-bold text-[#171717]">
-              Heatmap Aktivitas Jaringan & Pelanggan
+              Heatmap Order per Wilayah
             </CardTitle>
             <Badge variant="outline" className="border-[#e5e5e5] text-[11px] text-[#5c5c5c]">
-              Kabupaten Lumajang
+              Data aktual
             </Badge>
           </div>
           <p className="mt-1 text-xs text-[#5c5c5c]">
-            Visualisasi kepadatan penetrasi internet dan transmisi data di zona aktif
+            Titik memakai koordinat referensi wilayah; intensitas menunjukkan jumlah order, bukan
+            lokasi pemasangan pelanggan. Gunakan scroll atau pinch touchpad untuk zoom.
           </p>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs sm:mt-0">
+        <div className="flex flex-wrap items-center gap-3 text-xs">
           <div className="flex items-center gap-1.5 rounded-lg border border-[#e5e5e5] bg-[#f5f5f5] px-2.5 py-1 text-[#171717]">
-            <Radio className="h-3.5 w-3.5 text-[#d51100] animate-pulse" />
-            <span className="font-medium">8 Node Aktif</span>
+            <MapPin className="h-3.5 w-3.5 text-[#d51100]" />
+            <span className="font-medium">{mappedRegions.length} lokasi di peta</span>
           </div>
           <div className="flex items-center gap-1.5 rounded-lg border border-[#e5e5e5] bg-white px-2.5 py-1 text-[#5c5c5c]">
             <Layers className="h-3.5 w-3.5" />
-            <span>Layer Kerapatan</span>
+            <span>Intensitas = jumlah order</span>
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="p-4 pt-0">
+      <CardContent className="space-y-3 p-4 pt-0">
         <div className="relative h-[440px] w-full overflow-hidden rounded-xl border border-[#e5e5e5]">
           <MapContainer
-            center={center}
-            zoom={12}
-            scrollWheelZoom={false}
-            className="h-full w-full z-0"
+            center={[-8.1332, 113.2245]}
+            zoom={8}
+            scrollWheelZoom
+            touchZoom
+            className="z-0 h-full w-full"
           >
+            <FitMapToRegions regions={mappedRegions} />
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
-            {/* Heatmap simulation circles with varying gradients and radii */}
-            {heatmapPoints.map((pt) => {
-              const radius = pt.intensity * 900;
+            {mappedRegions.map((region) => {
+              const intensity = region.count / maxOrders;
+              const radius = 350 + intensity * 1800;
               return (
-                <React.Fragment key={`heat-${pt.id}`}>
-                  {/* Outer glow */}
-                  <Circle
-                    center={[pt.lat, pt.lng]}
-                    radius={radius * 1.5}
-                    pathOptions={{
-                      color: "#d51100",
-                      fillColor: "#d51100",
-                      fillOpacity: 0.08,
-                      weight: 0,
-                    }}
-                  />
-                  {/* Mid intensity */}
-                  <Circle
-                    center={[pt.lat, pt.lng]}
-                    radius={radius}
-                    pathOptions={{
-                      color: "#d51100",
-                      fillColor: "#d51100",
-                      fillOpacity: 0.22,
-                      weight: 1,
-                    }}
-                  />
-                  {/* Core hotspot */}
-                  <Circle
-                    center={[pt.lat, pt.lng]}
-                    radius={radius * 0.4}
-                    pathOptions={{
-                      color: "#d51100",
-                      fillColor: "#d51100",
-                      fillOpacity: 0.45,
-                      weight: 2,
-                    }}
-                  />
-                  {/* Marker Pin with Popup */}
-                  <Marker position={[pt.lat, pt.lng]} icon={pinIcon}>
-                    <Popup>
-                      <div className="p-1 min-w-[190px]">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="font-bold text-xs text-[#171717]">{pt.name}</p>
-                          <span className="rounded bg-[#d51100] px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                            {(pt.intensity * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-[#5c5c5c] mt-0.5">{pt.category}</p>
-                        <div className="mt-2 space-y-1 border-t border-neutral-100 pt-1.5 text-[11px]">
-                          <div className="flex justify-between">
-                            <span className="text-[#5c5c5c]">Trafik Terpasang:</span>
-                            <span className="font-semibold text-[#171717]">{pt.activeUsers} unit</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-[#5c5c5c]">Throughput:</span>
-                            <span className="font-semibold text-[#d51100]">{pt.bandwidthUsage}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </Popup>
-                  </Marker>
-                </React.Fragment>
+                <Circle
+                  key={region.id}
+                  center={[region.lat, region.lng]}
+                  radius={radius}
+                  pathOptions={{
+                    color: "#d51100",
+                    fillColor: "#d51100",
+                    fillOpacity: 0.12 + intensity * 0.3,
+                    weight: 1,
+                  }}
+                />
               );
             })}
-
-            {/* Wilayah Markers */}
-            {wilayahData.slice(0, 4).map((wil) => (
-              <Circle
-                key={`wil-${wil.id}`}
-                center={[wil.lat, wil.lng]}
-                radius={300}
+            {mappedRegions.map((region) => (
+              <CircleMarker
+                key={`${region.id}-marker`}
+                center={[region.lat, region.lng]}
+                radius={5}
                 pathOptions={{
-                  color: "#171717",
-                  fillColor: "#171717",
-                  fillOpacity: 0.15,
-                  weight: 1,
-                  dashArray: "4 4",
+                  color: "#ffffff",
+                  weight: 2,
+                  fillColor: "#d51100",
+                  fillOpacity: 1,
                 }}
-              />
+              >
+                <Popup>
+                  <div className="space-y-1 text-xs">
+                    <p className="font-semibold">{region.name}</p>
+                    <p>{region.count.toLocaleString("id-ID")} order</p>
+                    <p>{((region.count / maxOrders) * 100).toFixed(1)}% dari lokasi teratas</p>
+                    {region.sourceRegions.length > 1 && (
+                      <ul className="list-inside list-disc border-t pt-1">
+                        {region.sourceRegions.map((sourceRegion) => (
+                          <li key={sourceRegion.id}>
+                            {sourceRegion.name} ({sourceRegion.source}):{" "}
+                            {sourceRegion.count.toLocaleString("id-ID")} order
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </Popup>
+              </CircleMarker>
             ))}
           </MapContainer>
-
-          {/* Legend Overlay */}
-          <div className="absolute bottom-3 left-3 z-[1000] rounded-xl border border-[#e5e5e5] bg-white/95 px-3 py-2 text-xs shadow-md backdrop-blur-sm">
-            <p className="font-semibold text-[#171717] mb-1.5 text-[11px]">Intensitas Penetrasi</p>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-24 rounded-full bg-gradient-to-r from-[#5c5c5c]/30 via-[#d51100]/50 to-[#d51100]" />
-              <span className="text-[10px] text-[#5c5c5c]">Rendah → Padat</span>
+          {mappedRegions.length === 0 && (
+            <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-white/80 px-6 text-center text-sm text-[#5c5c5c]">
+              Belum ada kota pada data yang memiliki koordinat peta tersedia.
             </div>
-          </div>
+          )}
         </div>
+        {unmappedRegions.length > 0 && (
+          <div className="space-y-1 text-xs text-[#737373]">
+            <p>
+              {unmappedOrders.toLocaleString("id-ID")} order belum dipetakan karena lokasinya belum
+              memiliki koordinat yang dapat dipastikan:
+            </p>
+            <ul className="list-inside list-disc">
+              {unmappedRegions.map((region) => (
+                <li key={region.id}>
+                  {region.name} ({region.source}) - {region.count.toLocaleString("id-ID")} order
+                </li>
+              ))}
+            </ul>
+            <p>Data tersebut tetap dihitung di tabel dan grafik; tidak diberi titik perkiraan.</p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

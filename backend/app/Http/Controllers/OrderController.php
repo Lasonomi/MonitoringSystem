@@ -422,9 +422,23 @@ class OrderController extends Controller
             ->pluck('count', 'status');
 
         $byCity = (clone $query)
-            ->selectRaw('city_name, COUNT(*) as count')
-            ->groupBy('city_name')
+            ->selectRaw('TRIM(city_name) as city_name, COUNT(*) as count')
+            ->whereNotNull('city_name')
+            ->whereRaw("TRIM(city_name) != ''")
+            ->groupByRaw('TRIM(city_name)')
             ->orderByDesc('count')
+            ->get();
+
+        $regionName = "COALESCE(NULLIF(TRIM(city_name), ''), NULLIF(TRIM(datel), ''))";
+        $regionSource = "CASE WHEN NULLIF(TRIM(city_name), '') IS NOT NULL THEN 'Kota' ELSE 'DATEL' END";
+        $byRegion = (clone $query)
+            ->selectRaw("{$regionName} as region_name, {$regionSource} as region_source, COUNT(*) as count")
+            ->whereRaw("{$regionName} IS NOT NULL")
+            ->groupByRaw($regionName)
+            ->groupByRaw($regionSource)
+            ->orderByDesc('count')
+            ->orderBy('region_name')
+            ->orderBy('region_source')
             ->get();
 
         $byPackage = (clone $query)
@@ -462,11 +476,11 @@ class OrderController extends Controller
             ->get();
 
         $byDatel = (clone $query)
-            ->selectRaw('datel, COUNT(*) as count')
+            ->selectRaw('TRIM(datel) as datel, COUNT(*) as count')
             ->whereNotNull('datel')
-            ->groupBy('datel')
+            ->whereRaw("TRIM(datel) != ''")
+            ->groupByRaw('TRIM(datel)')
             ->orderByDesc('count')
-            ->limit(10)
             ->get();
 
         return response()->json([
@@ -483,6 +497,7 @@ class OrderController extends Controller
             'identified_customer_orders' => $identifiedCustomerOrders,
             'by_status'         => $byStatus,
             'by_city'           => $byCity,
+            'by_region'         => $byRegion,
             'by_package'        => $byPackage,
             'by_service_type'   => $byServiceType,
             'by_date'           => $byDate,

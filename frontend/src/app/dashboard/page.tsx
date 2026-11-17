@@ -41,6 +41,23 @@ export default function DashboardPage() {
   const [meta, setMeta] = useState<MetaResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(true);
+  const heatmapRegions = useMemo(
+    () =>
+      stats?.by_region?.map((region) => ({
+        id: `${region.region_source}:${region.region_name}`,
+        name: region.region_name,
+        source: region.region_source,
+        count: Number(region.count),
+      })) ??
+      stats?.by_city?.map((city) => ({
+        id: `Kota:${city.city_name}`,
+        name: city.city_name,
+        source: "Kota" as const,
+        count: Number(city.count),
+      })) ??
+      [],
+    [stats],
+  );
 
   const loadData = useCallback(async () => {
     try {
@@ -346,7 +363,7 @@ export default function DashboardPage() {
             HEATMAP
         ====================================================== */}
         <section className="min-w-0">
-          <HeatmapPreview />
+          <HeatmapPreview regions={heatmapRegions} />
         </section>
       </div>
     </DashboardLayout>

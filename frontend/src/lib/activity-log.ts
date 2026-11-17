@@ -8,8 +8,31 @@ export interface ActivityEntry {
 }
 
 const STORAGE_KEY = "dashboard-activity-log";
+const LAST_SEEN_KEY = "dashboard-activity-last-seen";
 const ACTIVITY_EVENT = "dashboard-activity-updated";
 const MAX_ACTIVITIES = 20;
+
+export function getLastSeenActivityId(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    return window.localStorage.getItem(LAST_SEEN_KEY);
+  } catch (error) {
+    console.error("Gagal membaca status notifikasi:", error);
+    return null;
+  }
+}
+
+export function markActivityAsSeen(activityId: string): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(LAST_SEEN_KEY, activityId);
+    window.dispatchEvent(new Event(ACTIVITY_EVENT));
+  } catch (error) {
+    console.error("Gagal menyimpan status notifikasi:", error);
+  }
+}
 
 export function getActivities(): ActivityEntry[] {
   if (typeof window === "undefined") return [];

@@ -104,6 +104,50 @@ class OrderUploadTest extends TestCase
             ->assertJsonPath('all_payable_orders', 2);
     }
 
+    public function test_stats_regions_use_city_then_datel_and_ignore_blank_locations(): void
+    {
+        Order::create([
+            'order_id' => 'REGION-CITY-1',
+            'city_name' => ' Lumajang ',
+            'datel' => 'DATEL A',
+        ]);
+        Order::create([
+            'order_id' => 'REGION-CITY-2',
+            'city_name' => 'Lumajang',
+            'datel' => 'DATEL B',
+        ]);
+        Order::create([
+            'order_id' => 'REGION-DATEL',
+            'city_name' => '   ',
+            'datel' => ' DATEL A ',
+        ]);
+        Order::create([
+            'order_id' => 'REGION-NO-LOCATION-1',
+            'city_name' => null,
+            'datel' => ' ',
+        ]);
+        Order::create([
+            'order_id' => 'REGION-NO-LOCATION-2',
+            'city_name' => null,
+            'datel' => null,
+        ]);
+
+        $this->getJson('/api/orders/stats')
+            ->assertOk()
+            ->assertJsonPath('total_orders', 5)
+            ->assertJsonFragment([
+                'region_name' => 'Lumajang',
+                'region_source' => 'Kota',
+                'count' => 2,
+            ])
+            ->assertJsonFragment([
+                'region_name' => 'DATEL A',
+                'region_source' => 'DATEL',
+                'count' => 1,
+            ])
+            ->assertJsonCount(2, 'by_region');
+    }
+
     public function test_upload_reports_existing_orders_as_updated_not_created(): void
     {
         Order::create([

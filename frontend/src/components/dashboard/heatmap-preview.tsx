@@ -2,8 +2,9 @@
 
 import dynamic from "next/dynamic";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { HeatmapRegion } from "./heatmap-preview-client";
 
-export const HeatmapPreview = dynamic(
+const HeatmapPreviewMap = dynamic(
   () =>
     import("./heatmap-preview-client").then((mod) => mod.HeatmapPreviewClient),
   {
@@ -25,3 +26,7 @@ export const HeatmapPreview = dynamic(
     ),
   }
 );
+
+export function HeatmapPreview({ regions }: { regions: HeatmapRegion[] }) {
+  return <HeatmapPreviewMap regions={regions} />;
+}
